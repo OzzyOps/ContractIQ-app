@@ -1,157 +1,140 @@
-# ContractIQ — GitHub Pages package (fixed)
+# ContractIQ
 
-This replaces what you uploaded before. Delete the old files from the
-repository and upload these instead.
-
----
-
-## What was wrong
-
-**The app file contains 355 instances of `{{`.**
-
-They come from the React code — inline styles are written as
-`style={{ position: "fixed" }}`. That is perfectly valid JavaScript.
-
-But GitHub Pages runs **Jekyll** over your repository by default, and
-Jekyll's template engine treats `{{ ... }}` as a variable to substitute.
-It hits `{{ position: "fixed" }}`, cannot parse it, and the build dies.
-GitHub's documentation lists this exact failure as *"Page build failed:
-Tag not properly terminated"*.
-
-**The fix is a single empty file called `.nojekyll`.** Its presence tells
-GitHub Pages to skip Jekyll entirely and serve your files exactly as they
-are — which is what you want, because nothing here needs building.
-
-It is already included in this package.
+The marketing site and the full application, ready to deploy to GitHub Pages.
 
 ---
 
-## Honest caveat about your specific error
+## Two ways in
 
-The message you saw was `Internal server error. Correlation ID: …`
-rather than a named Jekyll error. That generic message is **also** a
-common GitHub-side infrastructure fault — several recent reports show it
-appearing alongside *"The job was not acquired by Runner of type hosted"*,
-which is a runner problem, not a content problem.
+| URL | What it is | Needs setup? |
+|---|---|---|
+| `/demo/` | **The full app with sample analysis.** Every feature works — ingestion, OCR, search, obligations, clause matrix, knowledge, verification, exports. The AI returns realistic pre-written output instead of calling a model. | **No.** Works the moment the site is live. |
+| `/app/` | **The same app with real AI.** Identical in every other way. | Yes — a Supabase project (about 20 minutes). |
 
-So there are two possibilities:
+Both run the **Enterprise edition**, so nothing is feature-gated. Sign in
+with `admin` / `ContractIQ2026!`
 
-1. **Jekyll choked on the `{{`** — fixed by `.nojekyll` in this package.
-2. **GitHub was having a bad day** — nothing in your files caused it.
-
-The `{{` problem is real either way and would have broken the build
-sooner or later, so it needed fixing regardless. If the build still
-fails after uploading this package, it is cause 2 — see Troubleshooting
-at the bottom.
+**Start with `/demo/`.** It exercises everything except the model call, so
+you can judge the whole product before spending anything or configuring
+anything.
 
 ---
 
-## What else changed
+## Deploying
 
-**Removed `api/` and `.htaccess`.** These are Apache and PHP files for
-Hostinger. GitHub Pages cannot run PHP — it serves `.php` files as plain
-text, so anyone visiting `/api/config.example.php` would read the file
-rather than execute it. They do nothing useful here and are better left
-out. Keep using them when you deploy to Hostinger.
+1. Create a repository and upload **the contents of this folder** (not the
+   folder itself).
+2. Settings → Pages → Source: *Deploy from a branch*, Branch `main`,
+   Folder `/ (root)`. Save.
+3. Wait a minute. You are live at `https://YOURNAME.github.io/REPO/`
 
-**Added the app at `/app/`.** Your site and the working application are
-now in one repository, so `yourname.github.io/repo/app/` just works.
+> **Check `.nojekyll` made it.** Browsers hide dotfiles and drag-and-drop
+> often skips them. If it is missing from the file list: **Add file →
+> Create new file**, name it `.nojekyll`, leave it empty, commit. With
+> Git, use `git add -A` rather than `git add .`
+>
+> The app is pre-compiled so it no longer contains anything Jekyll would
+> choke on — but `.nojekyll` also stops Jekyll rewriting other files, so
+> it is still worth having.
 
-**Added an optional GitHub Actions workflow.** See below.
+### If the build fails
+
+Check <https://www.githubstatus.com> first. If **Actions** or **Pages**
+show anything other than Operational, the failure is not yours — wait and
+use **Re-run jobs**. Errors reading *"The job was not acquired by Runner
+of type hosted"* always mean this: the job never started, so nothing in
+your files caused it.
+
+If GitHub is healthy and it still fails: Settings → Pages → set Source to
+**None**, save, set it back. That clears stuck deployments.
 
 ---
 
-## How to upload
+## Turning on real AI (the `/app/` build)
 
-### Option A — replace the files in your existing repository
-
-1. In your repository, delete the old files (select them, Delete).
-2. Click **Add file → Upload files**.
-3. Drag in **the contents of this folder**, not the folder itself.
-4. Commit.
-
-> **Watch out for the dotfiles.** Browsers often hide files whose names
-> start with a dot, and drag-and-drop may silently skip `.nojekyll`.
-> After uploading, check the file list — if `.nojekyll` is not there,
-> click **Add file → Create new file**, type `.nojekyll` as the name,
-> leave the contents empty, and commit. This one file is the whole fix,
-> so it is worth confirming.
-
-### Option B — start a clean repository
-
-If the old one is in a confusing state, this is often faster:
-
-1. Create a new repository.
-2. Upload the contents of this folder.
-3. Settings → Pages → Source: *Deploy from a branch*, Branch: `main`,
-   Folder: `/ (root)`. Save.
-
-### With Git
+1. Create a free project at [supabase.com](https://supabase.com).
+2. SQL Editor → paste all of `supabase/schema.sql` → Run.
+3. Project Settings → API → copy the **Project URL** and the **anon**
+   key. (The *service role* key on that page must never go in the app.)
+4. Get an Anthropic API key at
+   [console.anthropic.com](https://console.anthropic.com), add a small
+   amount of credit, and **set a spend limit**.
+5. Deploy the proxy that holds your key:
 
 ```bash
-cd path/to/this/folder
-git init
-git add -A          # -A includes dotfiles; plain "git add ." can miss them
-git commit -m "ContractIQ site and app"
-git branch -M main
-git remote add origin https://github.com/YOURNAME/YOURREPO.git
-git push -u origin main --force
+npm install -g supabase
+supabase login
+supabase link --project-ref YOUR_PROJECT_REF
+
+supabase secrets set ANTHROPIC_API_KEY=sk-ant-your-key
+supabase secrets set ALLOWED_ORIGIN=https://YOURNAME.github.io
+supabase secrets set MAX_CALLS_PER_HOUR=60
+
+supabase functions deploy anthropic-proxy --no-verify-jwt
 ```
 
----
+6. Open `/app/`, sign in, **Settings** → paste the Supabase URL and anon
+   key. The AI endpoint is derived from that URL automatically.
 
-## Checking it worked
+`ALLOWED_ORIGIN` must be the origin the **app** is served from — for
+GitHub Pages that is `https://YOURNAME.github.io`, with no path and no
+trailing slash. Get this wrong and every AI call returns 403.
 
-Give it a minute or two, then:
+### Cost
 
-| Check | Expected |
-|---|---|
-| Actions tab | "pages build and deployment" green |
-| `yourname.github.io/repo/` | The marketing site, with the background animation |
-| `yourname.github.io/repo/app/` | The app sign-in screen |
-| Sign in | `admin` / `ContractIQ2026!` |
-
----
-
-## Troubleshooting
-
-**Still "Internal server error" after uploading this?**
-Then it is GitHub's side, not yours. In order:
-
-1. Actions tab → the failed run → **Re-run all jobs**. Transient faults
-   usually clear on a retry.
-2. Check <https://www.githubstatus.com> for Pages and Actions.
-3. Settings → Pages → set Source to **None**, save, then set it back to
-   your branch. This recreates the deployment workflow and clears a
-   surprising number of stuck states.
-4. Push any trivial commit to trigger a fresh run.
-5. If it persists for more than a few hours, switch to the Actions
-   route: Settings → Pages → Source: **GitHub Actions**. The included
-   `.github/workflows/deploy-pages.yml` takes over and bypasses the
-   default build path completely.
-
-**Site builds but pages 404.**
-Check the Pages folder setting is `/ (root)` and not `/docs`.
-
-**Site loads but looks unstyled, or the app is blank.**
-The browser is loading a cached copy — hard refresh (Ctrl+Shift+R, or
-Cmd+Shift+R on a Mac). If the app is still blank on a work machine, the
-corporate network is blocking the CDN it loads React from — use
-`ContractIQ_App_OFFLINE.html` from the main package instead.
-
-**The app says "No AI endpoint configured".**
-Expected until you connect Supabase. Sign in, open Settings, and paste
-your Supabase project URL and anon key. See the Hosting & Deployment
-Guide.
+Hosting is free. The AI is not: roughly **£0.05 per contract analysis**
+and **£0.01 per question**. Twenty contracts and fifty questions comes to
+about **£1.50**.
 
 ---
 
-## What is NOT in here, deliberately
+## What to test
 
-- `api/*.php` — Stripe endpoints. Hostinger only; PHP does not run here.
-- `.htaccess` — Apache only; ignored by Pages.
-- The four demo edition builds and the offline build — those are for
-  showing people locally, not for hosting.
+Fifteen minutes, in this order:
 
-`supabase/` is included for reference so the schema and Edge Function
-live alongside the code. Neither is served to visitors.
+1. **Sign in.** The Terms tick box is required — that is deliberate.
+2. **Load a sample portfolio** from the welcome panel. Look at the
+   **renewal runway** immediately: contracts are plotted by *notice
+   deadline*, and anything already past it is red.
+3. **Select all → Analyse.** Watch the credit cost appear before it runs.
+4. **Verify tab** on any record. Every value carries a confidence score,
+   its reasoning and a quote from the source. Below 80% it is held back
+   until you accept it.
+5. **Suppliers.** Name variants merge into one row; near-misses are
+   flagged for review.
+6. **Clause matrix.** Gaps down a column are exposure; gaps across a row
+   are your negotiating pattern.
+7. **Knowledge.** Who holds undocumented context, and every verbal
+   commitment that never reached a contract.
+8. **Upload a transcript** to a record. A consent dialogue blocks the
+   upload until you confirm participants were informed.
+9. **Upload a scanned PDF.** It is flagged amber with a *Run OCR* button;
+   OCR runs in your browser and the file is never transmitted.
+10. **Ctrl+K** searches records, document text and every finding.
+11. **Settings** → clear the workspace and start clean.
+
+The stress-test pack (38 fictional documents with a 37-finding answer
+key) is in the main package if you want something harder to throw at it.
+
+---
+
+## Notes
+
+**Pre-compiled.** The app ships as plain JavaScript rather than JSX
+transformed in the browser, so it loads faster and needs no Babel.
+
+**If the app shows "Loading ContractIQ…" and stops**, your network is
+blocking `cdnjs.cloudflare.com`. That is common on corporate machines.
+Use the offline build from the main package — it has every library
+embedded and needs no internet.
+
+**Sign-in is demo-grade.** The credentials are inside the HTML, so anyone
+with the URL can sign in. Fine for testing; before real users this moves
+to Supabase Auth.
+
+**Credits are display-only.** The balance is not enforced server-side
+yet, so a modified client could exceed it. Fine while it is just you.
+
+`supabase/` is reference material — it is not served to visitors.
+
+ContractIQ is an automated screening aid, not legal advice.

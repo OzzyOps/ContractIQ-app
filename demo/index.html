@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>ContractIQ — App</title>
+<title>ContractIQ — Demo</title>
 <meta name="description" content="ContractIQ — AI contract analysis across cost, risk, opportunity, compliance and institutional knowledge." />
 <meta name="robots" content="noindex" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath d='M24 3 L42 13.5 V34.5 L24 45 L6 34.5 V13.5 Z' fill='none' stroke='%232F7BD9' stroke-width='4'/%3E%3C/svg%3E" />
@@ -29,7 +29,7 @@
   #boot h1{color:#fff;font-size:26px;margin:0 0 10px}
   #boot p{font-size:14px;line-height:1.65;margin:0}
   #boot code{background:rgba(255,255,255,.1);padding:2px 6px;border-radius:4px;font-size:12.5px}
-  #mode-banner{position:fixed;bottom:12px;left:12px;z-index:999;background:#0B1D33;color:#5FA8F5;border:1px solid rgba(95,168,245,.4);border-radius:100px;padding:7px 15px;font:600 12px/1 'Quicksand',sans-serif;}
+  #mode-banner{position:fixed;bottom:12px;left:12px;z-index:999;background:#0B1D33;color:#37D5C3;border:1px solid rgba(95,168,245,.4);border-radius:100px;padding:7px 15px;font:600 12px/1 'Quicksand',sans-serif;}
 </style>
 </head>
 <body>
@@ -38,7 +38,7 @@
   <h1>Loading ContractIQ…</h1>
   <p id="boot-msg">Fetching the document readers.</p>
 </div></div>
-<div id="mode-banner">● Live mode — connect Supabase in Settings</div>
+<div id="mode-banner">● Demo mode — sample analysis, no AI cost</div>
 <script>
 /* If React has not arrived within 8 seconds the CDN is blocked — almost always a
    corporate network filter. Say so plainly rather than showing a blank page. */
@@ -55,7 +55,7 @@ setTimeout(function(){
 <script>
 (() => {
   const { useState, useRef, useEffect } = React;
-  const DEMO_MODE = false;
+  const DEMO_MODE = true;
   let AI_ENDPOINT = "";
   let AI_AUTH = "";
   const configureAI = (supabaseUrl, anonKey) => {
