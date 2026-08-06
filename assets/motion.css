@@ -1,0 +1,210 @@
+/* ══════════════════════════════════════════════════════════════
+   ContractIQ — motion layer
+   ──────────────────────────────────────────────────────────────
+   Deliberately restrained. This is a contract-governance product
+   sold to procurement and legal reviewers; motion should read as
+   craft, not as a design showreel. Everything here is opacity or
+   transform only (GPU-composited, no layout thrash), and the whole
+   layer switches off for anyone who has asked their OS to reduce
+   motion.
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── 1 · Scroll reveal ─────────────────────────────────────────
+   Elements start slightly low and transparent, then settle when
+   they enter the viewport. --i staggers siblings.                */
+.reveal {
+  opacity: 0;
+  transform: translate3d(0, 22px, 0);
+  transition: opacity .72s cubic-bezier(.22, .61, .36, 1),
+              transform .72s cubic-bezier(.22, .61, .36, 1);
+  transition-delay: calc(var(--i, 0) * 70ms);
+  will-change: opacity, transform;
+}
+.reveal.is-in { opacity: 1; transform: none; }
+.reveal.is-in { will-change: auto; }
+
+/* Sideways variant for alternating rows */
+.reveal-l { transform: translate3d(-26px, 0, 0); }
+.reveal-r { transform: translate3d(26px, 0, 0); }
+
+/* Scale-in for cards — very slight, so it reads as "settling" */
+.reveal-pop { transform: translate3d(0, 18px, 0) scale(.985); }
+
+/* ── 2 · Living mesh background ────────────────────────────────
+   The brand's polygonal mesh already exists as a static SVG layer
+   on .hero::before. This adds a second, slower-moving layer of
+   drifting nodes over it so the navy never looks like a flat
+   block, plus a very slow drift on the mesh itself.              */
+.hero, .page-hero { isolation: isolate; }
+
+.hero::before, .page-hero::before {
+  animation: ciq-mesh-drift 44s ease-in-out infinite alternate;
+}
+@keyframes ciq-mesh-drift {
+  from { transform: translate3d(0, 0, 0) scale(1.02); }
+  to   { transform: translate3d(-2.2%, 1.4%, 0) scale(1.06); }
+}
+
+/* Drifting node field — pure CSS radial-gradients, no extra requests */
+.hero::after, .page-hero::after {
+  content: "";
+  position: absolute;
+  inset: -12%;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(2px 2px at 12% 22%, rgba(169,207,246,.55) 0, transparent 100%),
+    radial-gradient(2px 2px at 27% 68%, rgba(55,213,195,.45) 0, transparent 100%),
+    radial-gradient(1.6px 1.6px at 44% 34%, rgba(255,255,255,.42) 0, transparent 100%),
+    radial-gradient(2.2px 2.2px at 61% 74%, rgba(95,168,245,.5) 0, transparent 100%),
+    radial-gradient(1.8px 1.8px at 73% 26%, rgba(169,207,246,.45) 0, transparent 100%),
+    radial-gradient(2px 2px at 88% 58%, rgba(55,213,195,.38) 0, transparent 100%),
+    radial-gradient(1.6px 1.6px at 34% 88%, rgba(255,255,255,.3) 0, transparent 100%),
+    radial-gradient(2px 2px at 55% 12%, rgba(95,168,245,.4) 0, transparent 100%);
+  animation: ciq-nodes 30s linear infinite;
+}
+@keyframes ciq-nodes {
+  0%   { transform: translate3d(0, 0, 0); opacity: .75; }
+  50%  { transform: translate3d(1.6%, -2.2%, 0); opacity: 1; }
+  100% { transform: translate3d(0, 0, 0); opacity: .75; }
+}
+
+/* Slow gradient breathing on the navy — barely perceptible, but
+   stops the hero feeling printed. */
+.hero, .page-hero {
+  background-size: 160% 160%;
+  animation: ciq-gradient 26s ease-in-out infinite alternate;
+}
+@keyframes ciq-gradient {
+  from { background-position: 0% 40%; }
+  to   { background-position: 100% 60%; }
+}
+
+/* ── 3 · Floating hexagons (parallax) ─────────────────────────
+   Injected by motion.js into heroes. The hexagon is the brand
+   mark, so the ambient shapes are hexagons rather than blobs.    */
+.ciq-float { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.ciq-hex {
+  position: absolute;
+  border: 1.5px solid rgba(95,168,245,.20);
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: linear-gradient(150deg, rgba(95,168,245,.05), rgba(55,213,195,.03));
+  animation: ciq-bob var(--dur, 18s) ease-in-out infinite alternate;
+  animation-delay: var(--delay, 0s);
+  will-change: transform;
+}
+@keyframes ciq-bob {
+  from { transform: translate3d(0,0,0) rotate(0deg); }
+  to   { transform: translate3d(0, calc(var(--rise, -26px)), 0) rotate(var(--spin, 8deg)); }
+}
+
+/* ── 4 · Cards: lift on hover, teal edge on focus ──────────────*/
+.hcard, .feat, .plan, .ed {
+  transition: transform .34s cubic-bezier(.22,.61,.36,1),
+              box-shadow .34s ease, border-color .34s ease;
+}
+.hcard:hover, .feat:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 38px rgba(15,43,76,.13);
+  border-color: rgba(47,123,217,.42);
+}
+.plan:hover { transform: translateY(-6px); box-shadow: 0 22px 46px rgba(15,43,76,.16); }
+
+/* Hex icons rotate a touch when their card is hovered */
+.hcard .hexicon, .feat .hexicon { transition: transform .42s cubic-bezier(.34,1.4,.5,1); }
+.hcard:hover .hexicon, .feat:hover .hexicon { transform: rotate(-8deg) scale(1.07); }
+
+/* ── 5 · Buttons ──────────────────────────────────────────────
+   A light sweep on hover — brand blue, not a rainbow.            */
+.btn { position: relative; overflow: hidden; isolation: isolate;
+       transition: transform .2s ease, box-shadow .24s ease, background .2s ease; }
+.btn::after {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,.22) 50%, transparent 70%);
+  transform: translateX(-130%);
+  transition: transform .62s cubic-bezier(.22,.61,.36,1);
+}
+.btn:hover::after { transform: translateX(130%); }
+.btn:hover { transform: translateY(-1.5px); }
+.btn:active { transform: translateY(0); }
+
+/* ── 6 · Navigation: condense on scroll ───────────────────────*/
+.nav {
+  transition: padding .3s ease, background-color .3s ease,
+              box-shadow .3s ease, backdrop-filter .3s ease;
+}
+.nav.is-stuck {
+  background: rgba(8,22,39,.86);
+  backdrop-filter: saturate(150%) blur(12px);
+  -webkit-backdrop-filter: saturate(150%) blur(12px);
+  box-shadow: 0 8px 26px rgba(4,14,28,.34);
+  padding-top: 9px; padding-bottom: 9px;
+}
+/* Underline that grows from the left on hover */
+.nav a[href$=".html"]:not(.btn):not(.brand) { position: relative; }
+.nav a[href$=".html"]:not(.btn):not(.brand)::after {
+  content: ""; position: absolute; left: 0; bottom: -5px;
+  height: 1.5px; width: 100%;
+  background: var(--teal, #37D5C3);
+  transform: scaleX(0); transform-origin: left;
+  transition: transform .3s cubic-bezier(.22,.61,.36,1);
+}
+.nav a[href$=".html"]:not(.btn):not(.brand):hover::after { transform: scaleX(1); }
+
+/* ── 7 · Section headings: teal rule draws itself in ───────────*/
+.sec-head .k { position: relative; display: inline-block; padding-bottom: 8px; }
+.sec-head .k::after {
+  content: ""; position: absolute; left: 50%; bottom: 0;
+  height: 2px; width: 46px; margin-left: -23px;
+  background: linear-gradient(90deg, var(--teal, #37D5C3), var(--blue-light, #5FA8F5));
+  transform: scaleX(0); transform-origin: center;
+  transition: transform .7s cubic-bezier(.22,.61,.36,1) .18s;
+}
+.reveal.is-in .k::after, .sec-head.is-in .k::after { transform: scaleX(1); }
+
+/* ── 8 · Page entry / exit ────────────────────────────────────
+   A soft fade so navigation between pages doesn't feel like a
+   hard cut. Paired with the View Transitions API where the
+   browser supports it.                                           */
+@keyframes ciq-page-in {
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+body { animation: ciq-page-in .5s cubic-bezier(.22,.61,.36,1) both; }
+body.ciq-leaving { opacity: 0; transition: opacity .22s ease; }
+
+@view-transition { navigation: auto; }
+::view-transition-old(root) { animation: ciq-vt-out .26s ease both; }
+::view-transition-new(root) { animation: ciq-vt-in .34s cubic-bezier(.22,.61,.36,1) both; }
+@keyframes ciq-vt-out { to { opacity: 0; transform: translateY(-6px); } }
+@keyframes ciq-vt-in  { from { opacity: 0; transform: translateY(10px); } }
+
+/* ── 9 · Count-up figures ─────────────────────────────────────*/
+.ciq-num { font-variant-numeric: tabular-nums; }
+
+/* ── 10 · Hexagonal scroll progress bar ───────────────────────*/
+#ciq-progress {
+  position: fixed; top: 0; left: 0; height: 2.5px; width: 0;
+  background: linear-gradient(90deg, var(--blue, #2F7BD9), var(--teal, #37D5C3));
+  z-index: 9999; transition: width .12s linear; pointer-events: none;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Reduced motion — a hard off switch, not a softened version.
+   Anyone who sets this at OS level is telling us motion causes
+   them a problem; honouring it properly matters more than the
+   effect does.
+   ══════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .reveal { opacity: 1 !important; transform: none !important; }
+  .sec-head .k::after { transform: scaleX(1) !important; }
+  .ciq-float, .hero::after, .page-hero::after { display: none !important; }
+  #ciq-progress { display: none !important; }
+  body { animation: none !important; }
+}

@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Start your subscription — ContractIQ Hub</title>
+<meta name="description" content="Create your ContractIQ workspace and start your subscription." />
+<meta name="robots" content="noindex" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath d='M24 3 L42 13.5 V34.5 L24 45 L6 34.5 V13.5 Z' fill='none' stroke='%232F7BD9' stroke-width='4'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root { --navy-950:#081627; --navy-900:#0B1D33; --navy-800:#0F2B4C; --blue:#2F7BD9; --blue-light:#5FA8F5;
+          --sky:#A9CFF6; --teal:#37D5C3; --ink:#16283E; --grey:#62748B; --line:#E1EAF6; --wash:#F5F9FE; }
+  body { font-family:'Quicksand','Trebuchet MS','Segoe UI',sans-serif; color:var(--ink); background:#fff; -webkit-font-smoothing:antialiased; }
+  .nav { position:sticky; top:0; z-index:50; background:rgba(8,22,39,0.94); backdrop-filter:blur(14px); height:64px;
+         display:flex; align-items:center; justify-content:space-between; padding:0 5vw; border-bottom:1px solid rgba(95,168,245,0.14); }
+  .brand { display:flex; align-items:center; gap:10px; font-size:19px; font-weight:700; color:#fff; text-decoration:none; }
+  .brand span { color:var(--blue-light); }
+  .nav a.back { color:#C7D8EE; font-size:14px; font-weight:600; text-decoration:none; }
+  .nav a.back:hover { color:#fff; }
+  .hero { position:relative; text-align:center; padding:56px 5vw 90px; color:#fff; overflow:hidden;
+          background:linear-gradient(135deg,var(--navy-950) 0%,var(--navy-800) 55%,#1C4E8F 100%); }
+  .hero::before { content:""; position:absolute; inset:0; pointer-events:none;
+    background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 800'%3E%3Cg stroke='%23ffffff' stroke-opacity='0.07' fill='none'%3E%3Cpath d='M-20 180 L240 60 L520 200 L780 40 L1080 190 L1240 90'/%3E%3Cpath d='M240 60 L300 340 L520 200 M780 40 L740 320 L1080 190'/%3E%3C/g%3E%3Cg fill='%23ffffff' fill-opacity='0.16'%3E%3Ccircle cx='240' cy='60' r='3'/%3E%3Ccircle cx='520' cy='200' r='3'/%3E%3Ccircle cx='780' cy='40' r='3'/%3E%3Ccircle cx='1080' cy='190' r='3'/%3E%3C/g%3E%3C/svg%3E") center/cover no-repeat; }
+  .hero > * { position:relative; }
+  .eyebrow { display:inline-flex; align-items:center; gap:10px; font-size:12px; font-weight:700; letter-spacing:0.24em;
+             text-transform:uppercase; color:var(--sky); margin-bottom:12px; }
+  .eyebrow::before, .eyebrow::after { content:""; width:26px; height:3px; background:var(--teal); border-radius:2px; }
+  h1 { font-size:clamp(28px,3.8vw,40px); line-height:1.14; font-weight:700; }
+  .hero p { color:#BFD5EF; font-size:16px; margin-top:12px; }
+  .wrap { max-width:1000px; margin:-56px auto 0; padding:0 5vw 80px; position:relative; z-index:2;
+          display:grid; grid-template-columns:1.25fr 0.9fr; gap:24px; align-items:start; }
+  .panel { background:#fff; border:1px solid var(--line); border-radius:8px; border-top:3px solid var(--blue);
+           padding:30px 28px; box-shadow:0 18px 44px rgba(15,43,76,0.10); }
+  .panel h2 { font-size:20px; font-weight:700; color:var(--navy-900); margin-bottom:4px; }
+  .panel .sub { font-size:13.5px; color:var(--grey); margin-bottom:22px; }
+  .plans { display:grid; gap:10px; margin-bottom:24px; }
+  .plan { display:grid; grid-template-columns:22px 1fr auto; gap:12px; align-items:center; cursor:pointer;
+          border:1.5px solid var(--line); border-radius:6px; padding:14px 16px; transition:all .15s; background:#fff; }
+  .plan:hover { border-color:var(--blue-light); }
+  .plan.on { border-color:var(--blue); background:var(--wash); box-shadow:0 0 0 3px rgba(47,123,217,0.10); }
+  .plan .dot { width:18px; height:18px; border-radius:50%; border:2px solid #C7DBF3; position:relative; }
+  .plan.on .dot { border-color:var(--blue); }
+  .plan.on .dot::after { content:""; position:absolute; inset:3px; border-radius:50%; background:var(--blue); }
+  .plan b { display:block; font-size:15px; color:var(--navy-900); }
+  .plan small { display:block; font-size:12.5px; color:var(--grey); margin-top:2px; }
+  .plan .price { font-size:17px; font-weight:700; color:var(--navy-900); white-space:nowrap; }
+  .fld { margin-bottom:14px; }
+  .fld label { display:block; font-size:11px; font-weight:700; color:var(--grey); text-transform:uppercase;
+               letter-spacing:0.12em; margin-bottom:6px; }
+  .fld input, .fld select { width:100%; border:1.5px solid #D6E3F5; border-radius:6px; padding:12px 14px;
+    font-size:15px; font-family:inherit; font-weight:500; color:var(--ink); outline:none; background:#fff; transition:border .15s; }
+  .fld input:focus, .fld select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(47,123,217,0.12); }
+  .fld .hint { font-size:11.5px; color:var(--grey); margin-top:5px; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .check { display:flex; gap:10px; align-items:flex-start; margin:18px 0 4px; font-size:12.5px; color:var(--grey); line-height:1.55; }
+  .check input { margin-top:2px; width:16px; height:16px; accent-color:var(--blue); flex-shrink:0; }
+  .btn { width:100%; background:var(--blue); color:#fff; border:none; border-radius:100px; padding:15px 24px;
+         font-size:16px; font-weight:700; cursor:pointer; font-family:inherit; transition:background .15s; margin-top:18px; }
+  .btn:hover:not(:disabled) { background:var(--blue-light); }
+  .btn:disabled { background:#A9CFF6; cursor:not-allowed; }
+  .err { background:#FDE9E7; color:#B23A31; border-radius:6px; padding:12px 14px; font-size:13px; font-weight:600;
+         margin-top:14px; display:none; }
+  .side { background:var(--wash); border:1px solid var(--line); border-radius:8px; padding:26px 24px; }
+  .side h3 { font-size:12px; font-weight:700; letter-spacing:0.16em; text-transform:uppercase; color:var(--blue); margin-bottom:14px; }
+  .side ul { list-style:none; }
+  .side li { font-size:13.5px; color:#3D4F66; padding:8px 0 8px 24px; position:relative; line-height:1.5; }
+  .side li::before { content:""; position:absolute; left:0; top:13px; width:12px; height:14px; background:var(--blue);
+    clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%); }
+  .side .secure { margin-top:20px; padding-top:18px; border-top:1px solid var(--line); font-size:12px; color:var(--grey); line-height:1.6; }
+  .side .secure b { color:var(--ink); display:block; margin-bottom:4px; font-size:12.5px; }
+  footer { background:var(--navy-950); color:#7E9CC4; text-align:center; padding:26px 5vw; font-size:12.5px; font-weight:600; }
+  footer a { color:#A9C4E6; text-decoration:none; }
+  @media (max-width:880px){ .wrap{grid-template-columns:1fr;} .row{grid-template-columns:1fr;} }
+</style>
+  <link rel="stylesheet" href="assets/motion.css" />
+  <script src="assets/motion.js" defer></script>
+</head>
+<body>
+<nav class="nav">
+  <a href="index.html" class="brand">
+    <svg width="30" height="30" viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="M24 3 L42 13.5 V34.5 L24 45 L6 34.5 V13.5 Z" stroke="#5FA8F5" stroke-width="2.6" stroke-linejoin="round"/><path d="M24 13 L33 18 V28 L24 33 L15 28 V18 Z M24 13 V23 M24 23 L33 18 M24 23 L15 18" stroke="#5FA8F5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>
+    Contract<span>IQ</span> Hub
+  </a>
+  <a href="pricing.html" class="back">‹ Back to pricing</a>
+</nav>
+
+<header class="hero">
+  <div class="eyebrow">Create your workspace</div>
+  <h1>Two minutes to set up.<br />Cancel any time.</h1>
+  <p>Your workspace is created as soon as payment completes. Sign-in details are emailed straight away.</p>
+</header>
+
+<div class="wrap">
+  <div class="panel">
+    <h2>Choose your edition</h2>
+    <div class="sub">All prices exclude VAT, which is added at checkout where applicable.</div>
+
+    <div class="plans" id="plans">
+      <div class="plan" data-plan="sandbox">
+        <div class="dot"></div>
+        <div><b>Evaluation Sandbox</b><small>150 credits every 90 days · no card required</small></div>
+        <div class="price">Free</div>
+      </div>
+      <div class="plan on" data-plan="growth">
+        <div class="dot"></div>
+        <div><b>Growth / Professional</b><small>500 credits a month · playbook rules · cross-document analysis</small></div>
+        <div class="price">£79<span style="font-size:12px;font-weight:600;color:var(--grey)">/mo</span></div>
+      </div>
+      <div class="plan" data-plan="scale">
+        <div class="dot"></div>
+        <div><b>Scale</b><small>1,800 credits a month · priority queue · everything in Growth</small></div>
+        <div class="price">£199<span style="font-size:12px;font-weight:600;color:var(--grey)">/mo</span></div>
+      </div>
+      <div class="plan" data-plan="enterprise">
+        <div class="dot"></div>
+        <div><b>Enterprise Suite</b><small>5,000+ credits · SSO · Zero-Retention · API access</small></div>
+        <div class="price">Custom</div>
+      </div>
+    </div>
+
+    <h2 style="margin-bottom:4px">Your details</h2>
+    <div class="sub">This creates the workspace and the first administrator account.</div>
+
+    <div class="row">
+      <div class="fld"><label for="firstName">First name</label><input id="firstName" name="firstName" autocomplete="given-name" required /></div>
+      <div class="fld"><label for="lastName">Last name</label><input id="lastName" name="lastName" autocomplete="family-name" required /></div>
+    </div>
+    <div class="fld">
+      <label for="email">Work email</label>
+      <input id="email" name="email" type="email" autocomplete="email" required placeholder="you@company.com" />
+      <div class="hint">Your sign-in details and receipts are sent here.</div>
+    </div>
+    <div class="fld">
+      <label for="company">Company / organisation</label>
+      <input id="company" name="company" autocomplete="organization" required />
+    </div>
+    <div class="row">
+      <div class="fld">
+        <label for="country">Billing country</label>
+        <select id="country" name="country">
+          <option value="GB" selected>United Kingdom</option>
+          <option value="IE">Ireland</option>
+          <option value="DE">Germany</option>
+          <option value="FR">France</option>
+          <option value="NL">Netherlands</option>
+          <option value="ES">Spain</option>
+          <option value="IT">Italy</option>
+          <option value="US">United States</option>
+          <option value="CA">Canada</option>
+          <option value="AU">Australia</option>
+          <option value="NZ">New Zealand</option>
+          <option value="IN">India</option>
+          <option value="OTHER">Other</option>
+        </select>
+      </div>
+      <div class="fld" id="vatWrap">
+        <label for="vatNumber">VAT number <span style="text-transform:none;letter-spacing:0;font-weight:600">(optional)</span></label>
+        <input id="vatNumber" name="vatNumber" placeholder="GB123456789" />
+        <div class="hint">Business customers: reverse charge may apply.</div>
+      </div>
+    </div>
+
+    <div class="check">
+      <input type="checkbox" id="terms" />
+      <label for="terms" style="font-weight:500;text-transform:none;letter-spacing:0;font-size:12.5px;color:var(--grey)">
+        I accept the <a href="terms.html" target="_blank">Terms of Service</a> and
+        <a href="privacy.html" target="_blank">Privacy Policy</a>, and I understand that ContractIQ is an automated
+        screening aid and not legal advice.
+      </label>
+    </div>
+    <div class="check">
+      <input type="checkbox" id="marketing" />
+      <label for="marketing" style="font-weight:500;text-transform:none;letter-spacing:0;font-size:12.5px;color:var(--grey)">
+        Send me occasional product updates. (Optional — we never sell your details.)
+      </label>
+    </div>
+
+    <button class="btn" id="submitBtn">Continue to secure payment</button>
+    <div class="err" id="err"></div>
+    <p style="font-size:11.5px;color:var(--grey);text-align:center;margin-top:14px;line-height:1.6">
+      You will be redirected to Stripe to enter card details. ContractIQ never sees or stores your card number.
+    </p>
+  </div>
+
+  <aside class="side">
+    <h3 id="sideTitle">Growth / Professional</h3>
+    <ul id="sideList">
+      <li>15 analyses per month, unused ones bank up to 30</li>
+      <li>Custom playbook rules graded against every contract</li>
+      <li>Cross-document analysis — POs, SOWs and terms read against each other</li>
+      <li>Meeting transcript ingestion and knowledge capture</li>
+      <li>Renewal alerts, Cedric, and Word/PDF/slide exports</li>
+    </ul>
+    <div class="secure">
+      <b>Secure by design</b>
+      Payments are processed by Stripe. Card details are entered on Stripe's own page and never touch our servers.
+      Cancel any time from your billing portal — access continues to the end of the paid period.
+    </div>
+  </aside>
+</div>
+
+<footer>
+  ContractIQ Hub · <a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a> · <a href="contact.html">Contact</a>
+  <br /><span style="font-weight:500;color:#6E8CB4">Automated screening aid — not legal advice.</span>
+</footer>
+
+<script>
+(function () {
+  var PLAN_COPY = {
+    sandbox: { title: "Evaluation Sandbox", items: [
+      "150 credits every 90 days — about 2 analyses plus 65 questions",
+      "Standard risk triage dashboard",
+      "Core clause checking routines",
+      "Renewal alerts, Cedric and exports included",
+      "No card required — cancel by simply not using it"] },
+    scale: { title: "Scale", items: [
+      "1,800 credits a month — about 45 analyses plus 675 questions",
+      "Unused credits roll over, up to 1,800",
+      "Everything in Growth, plus a priority analysis queue",
+      "Quarterly portfolio review export",
+      "Ideal once you pass roughly 40 contracts"] },
+    growth: { title: "Growth / Professional", items: [
+      "500 credits a month — about 12 analyses plus 190 questions",
+      "Custom playbook rules graded against every contract",
+      "Cross-document analysis — POs, SOWs and terms read against each other",
+      "Meeting transcript ingestion and knowledge capture",
+      "Renewal alerts, Cedric, and Word/PDF/slide exports"] },
+    enterprise: { title: "Enterprise Suite", items: [
+      "5,000+ credits a month, scaled to your estate",
+      "Zero-Retention processing",
+      "Dedicated API access keys",
+      "Corporate SSO and isolated environments",
+      "Onboarding engineer and priority support"] }
+  };
+
+  var plan = new URLSearchParams(location.search).get("plan") || "growth";
+  if (!PLAN_COPY[plan]) plan = "growth";
+
+  var plansEl = document.getElementById("plans");
+  var btn = document.getElementById("submitBtn");
+  var err = document.getElementById("err");
+
+  function paint() {
+    Array.prototype.forEach.call(plansEl.children, function (el) {
+      el.classList.toggle("on", el.dataset.plan === plan);
+    });
+    var c = PLAN_COPY[plan];
+    document.getElementById("sideTitle").textContent = c.title;
+    document.getElementById("sideList").innerHTML = c.items.map(function (i) { return "<li>" + i + "</li>"; }).join("");
+    document.getElementById("vatWrap").style.display = plan === "sandbox" ? "none" : "";
+    btn.textContent = plan === "sandbox" ? "Create free workspace"
+                    : plan === "enterprise" ? "Request Enterprise pricing"
+                    : "Continue to secure payment";
+  }
+  plansEl.addEventListener("click", function (e) {
+    var el = e.target.closest(".plan"); if (!el) return;
+    plan = el.dataset.plan; paint();
+  });
+  paint();
+
+  function fail(msg) { err.textContent = msg; err.style.display = "block"; btn.disabled = false; btn.textContent = "Try again"; }
+
+  btn.addEventListener("click", function () {
+    err.style.display = "none";
+    var payload = {
+      plan: plan,
+      firstName: document.getElementById("firstName").value.trim(),
+      lastName: document.getElementById("lastName").value.trim(),
+      email: document.getElementById("email").value.trim(),
+      company: document.getElementById("company").value.trim(),
+      country: document.getElementById("country").value,
+      vatNumber: document.getElementById("vatNumber").value.trim(),
+      marketing: document.getElementById("marketing").checked
+    };
+    if (!payload.firstName || !payload.lastName || !payload.company) return fail("Please complete your name and company.");
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(payload.email)) return fail("Please enter a valid work email address.");
+    if (!document.getElementById("terms").checked) return fail("Please accept the Terms and Privacy Policy to continue.");
+
+    if (plan === "enterprise") {
+      location.href = "mailto:sales@example.com?subject=" + encodeURIComponent("ContractIQ Enterprise enquiry — " + payload.company) +
+        "&body=" + encodeURIComponent("Name: " + payload.firstName + " " + payload.lastName + "\nCompany: " + payload.company +
+        "\nEmail: " + payload.email + "\nCountry: " + payload.country + "\n\nPlease send Enterprise pricing.");
+      return;
+    }
+
+    btn.disabled = true; btn.textContent = "Setting up…";
+    fetch("api/create-checkout-session.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (!res.ok || !res.j.url) return fail(res.j.error || "We could not start checkout. Please try again or contact support.");
+        location.href = res.j.url;                 // Stripe Checkout (or success page for the free tier)
+      })
+      .catch(function () { fail("Network problem — please check your connection and try again."); });
+  });
+})();
+</script>
+<script>
+/* Failsafe: never let a motion bug leave content hidden. */
+setTimeout(function(){
+  var h=document.querySelectorAll('.reveal:not(.is-in)');
+  for(var i=0;i<h.length;i++) h[i].classList.add('is-in');
+}, 2600);
+</script>
+</body>
+</html>

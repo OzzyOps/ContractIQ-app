@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Welcome to ContractIQ</title>
+<meta name="robots" content="noindex" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath d='M24 3 L42 13.5 V34.5 L24 45 L6 34.5 V13.5 Z' fill='none' stroke='%232F7BD9' stroke-width='4'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  :root { --navy-950:#081627; --navy-900:#0B1D33; --navy-800:#0F2B4C; --blue:#2F7BD9; --blue-light:#5FA8F5;
+          --sky:#A9CFF6; --teal:#37D5C3; --ink:#16283E; --grey:#62748B; --line:#E1EAF6; --wash:#F5F9FE; }
+  body { font-family:'Quicksand','Trebuchet MS','Segoe UI',sans-serif; color:var(--ink); background:#fff; -webkit-font-smoothing:antialiased; }
+  .hero { position:relative; text-align:center; padding:78px 5vw 110px; color:#fff; overflow:hidden;
+          background:linear-gradient(135deg,var(--navy-950) 0%,var(--navy-800) 55%,#1C4E8F 100%); }
+  .hero::before { content:""; position:absolute; inset:0; pointer-events:none;
+    background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 800'%3E%3Cg stroke='%23ffffff' stroke-opacity='0.07' fill='none'%3E%3Cpath d='M-20 180 L240 60 L520 200 L780 40 L1080 190 L1240 90'/%3E%3Cpath d='M240 60 L300 340 L520 200 M780 40 L740 320 L1080 190'/%3E%3C/g%3E%3Cg fill='%23ffffff' fill-opacity='0.16'%3E%3Ccircle cx='240' cy='60' r='3'/%3E%3Ccircle cx='520' cy='200' r='3'/%3E%3Ccircle cx='780' cy='40' r='3'/%3E%3C/g%3E%3C/svg%3E") center/cover no-repeat; }
+  .hero > * { position:relative; }
+  .tick { width:74px; height:82px; margin:0 auto 22px; background:linear-gradient(160deg,var(--teal),#1FA894);
+          clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%); display:flex; align-items:center; justify-content:center; }
+  .tick svg { width:34px; height:34px; }
+  h1 { font-size:clamp(28px,3.8vw,40px); font-weight:700; line-height:1.14; }
+  .hero p { color:#BFD5EF; font-size:17px; margin-top:14px; }
+  .wrap { max-width:820px; margin:-62px auto 0; padding:0 5vw 70px; position:relative; z-index:2; }
+  .panel { background:#fff; border:1px solid var(--line); border-top:3px solid var(--blue); border-radius:8px;
+           padding:34px 32px; box-shadow:0 18px 44px rgba(15,43,76,0.10); }
+  .panel h2 { font-size:20px; font-weight:700; color:var(--navy-900); margin-bottom:18px; }
+  ol { list-style:none; counter-reset:s; }
+  li { counter-increment:s; position:relative; padding:0 0 22px 60px; }
+  li:last-child { padding-bottom:0; }
+  li::before { content:counter(s); position:absolute; left:0; top:0; width:38px; height:43px;
+    background:linear-gradient(160deg,var(--blue),var(--blue-light));
+    clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%);
+    color:#fff; font-weight:700; font-size:15px; display:flex; align-items:center; justify-content:center; }
+  li b { display:block; font-size:16px; color:var(--navy-900); margin-bottom:4px; }
+  li span { font-size:14px; color:var(--grey); line-height:1.6; }
+  .cta { display:flex; gap:12px; flex-wrap:wrap; margin-top:26px; }
+  .btn { display:inline-block; background:var(--blue); color:#fff; border-radius:100px; padding:13px 28px;
+         font-size:15px; font-weight:700; text-decoration:none; transition:background .15s; }
+  .btn:hover { background:var(--blue-light); }
+  .btn.ghost { background:transparent; color:var(--blue); border:1.5px solid rgba(47,123,217,0.5); }
+  .note { background:var(--wash); border-radius:6px; padding:16px 18px; margin-top:26px; font-size:13px;
+          color:var(--grey); line-height:1.65; }
+  .note b { color:var(--ink); }
+  footer { background:var(--navy-950); color:#7E9CC4; text-align:center; padding:26px 5vw; font-size:12.5px; font-weight:600; }
+  footer a { color:#A9C4E6; text-decoration:none; }
+</style>
+  <link rel="stylesheet" href="assets/motion.css" />
+  <script src="assets/motion.js" defer></script>
+</head>
+<body>
+<header class="hero">
+  <div class="tick"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 7"/></svg></div>
+  <h1 id="headline">Your workspace is ready.</h1>
+  <p id="sub">Check your inbox — sign-in details are on their way.</p>
+</header>
+
+<div class="wrap">
+  <div class="panel">
+    <h2>What happens next</h2>
+    <ol>
+      <li><b>Check your email</b><span>Your sign-in link and receipt have been sent. If nothing arrives within a few minutes, look in spam, then contact support and we will sort it.</span></li>
+      <li><b>Pick the contract that worries you most</b><span>Usually the largest, or the one renewing soonest. Enter its reference and supplier — that is the whole form.</span></li>
+      <li><b>Drop in everything you have</b><span>The agreement, purchase orders, statements of work, tracking spreadsheets, and any Teams or Zoom transcripts of meetings about it.</span></li>
+      <li><b>Run the analysis and diarise the deadline</b><span>Read the insights, add the renewal notice date to your calendar, and export the report for whoever needs to see it.</span></li>
+    </ol>
+    <div class="cta">
+      <a class="btn" href="app/">Open ContractIQ</a>
+      <a class="btn ghost" href="index.html">Back to the site</a>
+    </div>
+    <div class="note" id="billingNote">
+      <b>Your billing</b><br />
+      Manage or cancel your subscription at any time from the billing portal inside the app — access continues to the end of the paid period.
+      Receipts and VAT invoices are issued automatically by our payment provider. ContractIQ never sees or stores your card details.
+    </div>
+  </div>
+</div>
+
+<footer>
+  ContractIQ Hub · <a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a> · <a href="contact.html">Contact</a>
+  <br /><span style="font-weight:500;color:#6E8CB4">Automated screening aid — not legal advice.</span>
+</footer>
+
+<script>
+(function () {
+  var plan = new URLSearchParams(location.search).get("plan") || "growth";
+  var COPY = {
+    sandbox: { h: "Your free workspace is ready.", s: "150 credits every 90 days — no card, no expiry date, no catch." },
+    growth:  { h: "You're on Growth. Welcome aboard.", s: "500 credits a month, playbook rules and cross-document analysis are live." },
+    scale:   { h: "You're on Scale. Welcome aboard.", s: "1,800 credits a month and priority analysis are live on your workspace." }
+  };
+  var c = COPY[plan] || COPY.growth;
+  document.getElementById("headline").textContent = c.h;
+  document.getElementById("sub").textContent = c.s;
+  if (plan === "sandbox") {
+    document.getElementById("billingNote").innerHTML =
+      "<b>No payment taken</b><br />The Evaluation Sandbox is permanently free. When you need more volume, " +
+      "upgrading takes a minute and your contracts, documents and analyses come with you.";
+  }
+})();
+</script>
+<script>
+/* Failsafe: never let a motion bug leave content hidden. */
+setTimeout(function(){
+  var h=document.querySelectorAll('.reveal:not(.is-in)');
+  for(var i=0;i<h.length;i++) h[i].classList.add('is-in');
+}, 2600);
+</script>
+</body>
+</html>
