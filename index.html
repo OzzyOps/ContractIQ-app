@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ContractIQ App — choose an edition</title>
+<meta name="description" content="Four editions of the ContractIQ App: Evaluation Sandbox, Growth / Professional, Scale and Enterprise Suite." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath d='M24 3 L42 13.5 V34.5 L24 45 L6 34.5 V13.5 Z' fill='none' stroke='%232F7BD9' stroke-width='4'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root { --navy-950:#081627; --navy-900:#0B1D33; --navy-800:#0F2B4C; --blue:#2F7BD9; --blue-light:#5FA8F5; --sky:#A9CFF6; --teal:#37D5C3; --line:#E1EAF6; --grey:#62748B; }
+  body { font-family:'Quicksand','Trebuchet MS','Segoe UI',sans-serif; color:#16283E; background:#fff; -webkit-font-smoothing:antialiased; }
+  .hero { position:relative; text-align:center; padding:74px 5vw 90px; color:#fff; overflow:hidden;
+    background:linear-gradient(135deg,var(--navy-950) 0%,var(--navy-800) 55%,#1C4E8F 100%); }
+  .hero::before { content:""; position:absolute; inset:0; pointer-events:none;
+    background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 800'%3E%3Cg stroke='%23ffffff' stroke-opacity='0.07' fill='none'%3E%3Cpath d='M-20 180 L240 60 L520 200 L780 40 L1080 190 L1240 90'/%3E%3Cpath d='M240 60 L300 340 L520 200 M780 40 L740 320 L1080 190 M300 340 L740 320'/%3E%3Cpath d='M-40 620 L260 500 L560 660 L860 520 L1180 680'/%3E%3C/g%3E%3Cg fill='%23ffffff' fill-opacity='0.16'%3E%3Ccircle cx='240' cy='60' r='3'/%3E%3Ccircle cx='520' cy='200' r='3'/%3E%3Ccircle cx='780' cy='40' r='3'/%3E%3Ccircle cx='1080' cy='190' r='3'/%3E%3Ccircle cx='300' cy='340' r='3'/%3E%3Ccircle cx='740' cy='320' r='3'/%3E%3C/g%3E%3C/svg%3E") center/cover no-repeat; }
+  .hero > * { position:relative; }
+  .brand { display:inline-flex; align-items:center; gap:10px; font-size:20px; font-weight:700; margin-bottom:22px; }
+  .brand span { color:var(--blue-light); }
+  .eyebrow { display:inline-flex; align-items:center; gap:10px; font-size:12px; font-weight:700; letter-spacing:0.24em; text-transform:uppercase; color:var(--sky); margin-bottom:14px; }
+  .eyebrow::before, .eyebrow::after { content:""; width:26px; height:3px; background:var(--teal); border-radius:2px; }
+  h1 { font-size:clamp(30px,4.4vw,44px); line-height:1.12; font-weight:700; }
+  h1 em { font-style:normal; color:var(--blue-light); }
+  .hero p { color:#BFD5EF; font-size:17px; margin:14px auto 0; max-width:600px; }
+  .wrap { max-width:1060px; margin:-56px auto 0; padding:0 5vw 70px; position:relative; z-index:2; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(290px,1fr)); gap:20px; }
+  .ed { background:#fff; border:1px solid var(--line); border-top:3px solid var(--blue); border-radius:6px; padding:30px 26px 26px; display:flex; flex-direction:column; box-shadow:0 18px 44px rgba(15,43,76,0.10); transition:transform .18s, box-shadow .18s; }
+  .ed:hover { transform:translateY(-4px); box-shadow:0 26px 60px rgba(15,43,76,0.16); }
+  .ed.pop { border:2px solid var(--blue); border-top:3px solid var(--teal); }
+  .tier { font-size:12px; font-weight:700; letter-spacing:0.18em; text-transform:uppercase; color:var(--blue); }
+  .tier::after { content:""; display:block; width:30px; height:3px; background:var(--teal); border-radius:2px; margin-top:8px; }
+  .amt { font-size:34px; font-weight:700; color:var(--navy-900); margin:14px 0 2px; }
+  .amt small { font-size:14px; font-weight:600; color:var(--grey); }
+  .sub { color:var(--grey); font-size:13.5px; margin-bottom:16px; }
+  ul { list-style:none; flex:1; margin-bottom:22px; }
+  li { font-size:14px; padding:7px 0 7px 24px; position:relative; color:#3D4F66; }
+  li::before { content:""; position:absolute; left:0; top:12px; width:12px; height:14px; background:var(--blue); clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%); }
+  .btn { display:block; text-align:center; background:var(--blue); color:#fff; border-radius:100px; padding:12px 24px; font-size:14.5px; font-weight:700; text-decoration:none; transition:background .15s; }
+  .btn:hover { background:var(--blue-light); }
+  .btn.ghost { background:transparent; color:var(--blue); border:1.5px solid rgba(47,123,217,0.5); }
+  .btn.ghost:hover { background:rgba(47,123,217,0.07); }
+  .note { text-align:center; color:var(--grey); font-size:13px; margin-top:30px; line-height:1.7; }
+  .note b { color:#16283E; }
+  footer { background:var(--navy-950); color:#7E9CC4; text-align:center; padding:26px 5vw; font-size:12.5px; font-weight:600; }
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="brand">
+    <svg width="30" height="30" viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="M24 3 L42 13.5 V34.5 L24 45 L6 34.5 V13.5 Z" stroke="#5FA8F5" stroke-width="2.6" stroke-linejoin="round"/><path d="M24 13 L33 18 V28 L24 33 L15 28 V18 Z M24 13 V23 M24 23 L33 18 M24 23 L15 18" stroke="#5FA8F5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>
+    Contract<span>IQ</span>&nbsp;App
+  </div>
+  <div class="eyebrow">Four editions</div>
+  <h1>One platform.<br /><em>Sized to your estate.</em></h1>
+  <p>Every edition runs the same analysis engine. What changes is how much you can audit, how deeply documents are cross-examined, and the controls your security team gets.</p>
+</header>
+
+<div class="wrap">
+  <div class="grid">
+    <div class="ed">
+      <div class="tier">Evaluation Sandbox</div>
+      <div class="amt">Free</div>
+      <div class="sub">Permanently free · no card required</div>
+      <ul>
+        <li>2 thorough audits (resets every 90 days)</li>
+        <li>Standard risk triage dashboard</li>
+        <li>Baseline metadata parsing</li>
+        <li>Core clause checking routines</li>
+      </ul>
+      <a class="btn ghost" href="ContractIQ_App_Sandbox.html">Open Sandbox</a>
+    </div>
+
+    <div class="ed pop">
+      <div class="tier">Growth / Professional</div>
+      <div class="amt">£79<small>/month</small></div>
+      <div class="sub">Most popular · cancel any time</div>
+      <ul>
+        <li>500 credits a month (~12 analyses + 190 questions)</li>
+        <li>Unused credits roll over, up to 500</li>
+        <li>30-day revision windows</li>
+        <li>Custom playbook configuration</li>
+        <li>Cross-document analysis and transcripts</li>
+      </ul>
+      <a class="btn" href="ContractIQ_App_Growth.html">Open Growth</a>
+    </div>
+
+    <div class="ed">
+      <div class="tier">Scale</div>
+      <div class="amt">£199<small>/month</small></div>
+      <div class="sub">For heavier contract estates</div>
+      <ul>
+        <li>1,800 credits a month (~45 analyses + 675 questions)</li>
+        <li>Unused credits roll over, up to 1,800</li>
+        <li>Everything in Growth</li>
+        <li>Priority analysis queue</li>
+        <li>Quarterly portfolio review export</li>
+      </ul>
+      <a class="btn ghost" href="ContractIQ_App_Scale.html">Open Scale</a>
+    </div>
+
+    <div class="ed">
+      <div class="tier">Enterprise Suite</div>
+      <div class="amt">From £499<small>/month</small></div>
+      <div class="sub">Tailored corporate pricing · invoiced annually</div>
+      <ul>
+        <li>5,000+ credits a month, scaling on demand</li>
+        <li>Dedicated API access keys</li>
+        <li>Zero-Retention processing toggle</li>
+        <li>Isolated cloud environments</li>
+        <li>Corporate SSO</li>
+      </ul>
+      <a class="btn ghost" href="ContractIQ_App_Enterprise.html">Open Enterprise</a>
+    </div>
+  </div>
+
+  <p class="note">
+    <b>These are demonstration builds.</b> The AI engine is switched off so they are free to host — analysis returns a representative sample result,
+    and Cedric explains he is offline. Ingestion, alerts, exports, playbooks and every edition gate are fully live.<br />
+    Compare the editions by running the same documents through each: the Sandbox reads each document on its own, while Growth, Scale and Enterprise cross-examine them against one another.
+  </p>
+</div>
+
+<footer>ContractIQ App · Demonstration builds · Automated screening aid — not legal advice.</footer>
+</body>
+</html>
