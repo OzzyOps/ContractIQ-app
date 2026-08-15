@@ -941,12 +941,70 @@ setTimeout(function(){
     -webkit-font-smoothing: antialiased; font-size: 15px; line-height: 1.55;
   }
   .ciq a { color: #2F7BD9; text-decoration: none; cursor: pointer; font-weight: 600; }
+    /* Three zones, in the order research and habit both expect:
+       identity + primary navigation on the left, a flexible gap, then
+       global utilities (search, primary action, account) on the right.
+       Previously everything was packed against the left edge, which is
+       what made it read as clutter. */
   .nav {
-    position: sticky; top: 0; z-index: 50; height: 60px;
+      position: sticky; top: 0; z-index: 50; height: 62px;
     background: rgba(8,22,39,0.94); backdrop-filter: blur(14px);
     border-bottom: 1px solid rgba(95,168,245,0.16);
-    display: flex; align-items: center; justify-content: space-between; padding: 0 26px;
-  }
+      display: flex; align-items: center; gap: 22px; padding: 0 22px;
+    }
+    .nav-left  { display: flex; align-items: center; gap: 22px; min-width: 0; }
+    .nav-right { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+    .nav-sep   { width: 1px; height: 24px; background: rgba(95,168,245,0.22); }
+
+    /* Active state is a filled pill, not a slightly different blue \u2014
+       a genuinely different treatment, so "where am I" is answerable
+       at a glance. */
+    .nav-item {
+      cursor: pointer; font-size: 13px; font-weight: 600; color: #B9CFE8;
+      padding: 7px 13px; border-radius: 7px; white-space: nowrap;
+      display: flex; align-items: center; gap: 6px;
+      transition: background .15s, color .15s;
+    }
+    .nav-item:hover { color: #fff; background: rgba(255,255,255,0.07); }
+    .nav-item.on { color: #fff; background: rgba(47,123,217,0.34); box-shadow: inset 0 0 0 1px rgba(95,168,245,0.45); }
+
+    .nav-search {
+      background: rgba(255,255,255,0.08); border: 1px solid rgba(95,168,245,0.26);
+      border-radius: 8px; padding: 7px 13px 7px 34px; font-size: 12.5px;
+      font-family: inherit; font-weight: 500; color: #fff; width: 190px; outline: none;
+      transition: width .2s, background .2s, border-color .2s;
+    }
+    .nav-search:focus { width: 250px; background: rgba(255,255,255,0.13); border-color: rgba(95,168,245,0.6); }
+    .nav-search::placeholder { color: #7E9CC4; }
+
+    .nav-avatar {
+      width: 34px; height: 34px; border-radius: 50%; cursor: pointer;
+      background: linear-gradient(150deg,#2F7BD9,#5FA8F5); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12.5px; font-weight: 700; letter-spacing: 0.02em;
+      border: 2px solid transparent; transition: border-color .15s;
+    }
+    .nav-avatar:hover, .nav-avatar.on { border-color: rgba(169,207,246,0.75); }
+
+    .nav-menu {
+      position: absolute; top: calc(100% + 10px); right: 0; z-index: 701; width: 288px;
+      background: #fff; border: 1px solid #D6E3F5; border-radius: 11px;
+      box-shadow: 0 22px 54px rgba(8,22,39,0.28); overflow: hidden;
+    }
+    .nav-menu-h {
+      padding: 10px 15px 5px; font-size: 10.5px; font-weight: 700; color: #8FA3BC;
+      text-transform: uppercase; letter-spacing: 0.07em;
+      background: #F7FAFE; border-bottom: 1px solid #EEF3FA;
+    }
+    .nav-menu-i { padding: 10px 15px; cursor: pointer; border-bottom: 1px solid #F4F8FD; }
+    .nav-menu-i:hover { background: #F7FAFE; }
+    .nav-menu-i .t { font-size: 13.5px; font-weight: 700; color: #16283E; }
+    .nav-menu-i .s { font-size: 11.5px; color: #7A8DA6; margin-top: 2px; }
+
+    @media (max-width: 1180px) {
+      .nav-search { width: 150px; }
+      .nav-label-hide { display: none; }
+    }
   .nav-brand { font-size: 18px; font-weight: 700; letter-spacing: 0.02em; cursor: pointer; color: #fff; display: flex; align-items: center; gap: 8px; }
   .nav-brand span { color: #5FA8F5; }
   .nav-links { display: flex; gap: 20px; font-size: 13px; font-weight: 600; color: #C7D8EE; align-items: center; }
@@ -1849,6 +1907,13 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
     const [actionCat, setActionCat] = useState("All");
     const [actionSearch, setActionSearch] = useState("");
     const [copiedAction, setCopiedAction] = useState(null);
+    const [navOpen, setNavOpen] = useState(false);
+    const navMenuRef = useRef(null);
+    const [intelOpen, setIntelOpen] = useState(false);
+    const intelRef = useRef(null);
+    const [pwShown, setPwShown] = useState({});
+    const [otp, setOtp] = useState(["", "", "", "", "", ""]);
+    const [otpErr, setOtpErr] = useState(false);
     const [cedricBusy, setCedricBusy] = useState(false);
     const cedricEnd = useRef(null);
     useEffect(() => {
@@ -1962,6 +2027,69 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
       setResendIn(60);
       setAuthMsg(error ? { kind: "err", text: friendlyAuthError(error.message) } : { kind: "ok", text: `Sent again to ${pendingEmail}. It can take a minute to arrive.` });
     };
+    const doVerifyOtp = async (codeOverride) => {
+      const code = (codeOverride || otp.join("")).replace(/\D/g, "");
+      if (code.length !== 6) return setAuthMsg({ kind: "err", text: "Enter all six digits." });
+      const client = await authGuard();
+      if (!client) return;
+      setAuthBusy(true);
+      setAuthMsg(null);
+      setOtpErr(false);
+      const { data, error } = await client.auth.verifyOtp({
+        email: pendingEmail,
+        token: code,
+        type: "email"
+      });
+      setAuthBusy(false);
+      if (error) {
+        setOtpErr(true);
+        setOtp(["", "", "", "", "", ""]);
+        setTimeout(() => {
+          var _a2;
+          return (_a2 = document.getElementById("otp-0")) == null ? void 0 : _a2.focus();
+        }, 60);
+        return setAuthMsg({ kind: "err", text: /expired/i.test(error.message) ? "That code has expired. Ask for a new one below." : "That code was not right. Check the email and try again." });
+      }
+      if (data == null ? void 0 : data.session) {
+        applySession(data.session);
+        client.rpc("record_terms_acceptance", { version: "2026.1" }).then(null, () => {
+        });
+      }
+    };
+    const onOtpChange = (i, raw) => {
+      var _a2;
+      const v = raw.replace(/\D/g, "");
+      setOtpErr(false);
+      if (v.length > 1) {
+        const digits = v.slice(0, 6).split("");
+        const next2 = ["", "", "", "", "", ""];
+        digits.forEach((d, k) => {
+          next2[k] = d;
+        });
+        setOtp(next2);
+        const last = Math.min(digits.length, 6) - 1;
+        setTimeout(() => {
+          var _a3;
+          return (_a3 = document.getElementById(`otp-${last}`)) == null ? void 0 : _a3.blur();
+        }, 10);
+        if (digits.length === 6) setTimeout(() => doVerifyOtp(digits.join("")), 120);
+        return;
+      }
+      const next = [...otp];
+      next[i] = v;
+      setOtp(next);
+      if (v && i < 5) (_a2 = document.getElementById(`otp-${i + 1}`)) == null ? void 0 : _a2.focus();
+      if (v && i === 5) {
+        const code = next.join("");
+        if (code.length === 6 && !next.includes("")) setTimeout(() => doVerifyOtp(code), 120);
+      }
+    };
+    const onOtpKey = (i, e) => {
+      var _a2, _b2, _c2;
+      if (e.key === "Backspace" && !otp[i] && i > 0) (_a2 = document.getElementById(`otp-${i - 1}`)) == null ? void 0 : _a2.focus();
+      if (e.key === "ArrowLeft" && i > 0) (_b2 = document.getElementById(`otp-${i - 1}`)) == null ? void 0 : _b2.focus();
+      if (e.key === "ArrowRight" && i < 5) (_c2 = document.getElementById(`otp-${i + 1}`)) == null ? void 0 : _c2.focus();
+    };
     const doCheckVerified = async () => {
       var _a2, _b2;
       const client = await authGuard();
@@ -2035,6 +2163,25 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
     useEffect(() => {
       configureAI(sb.url, sb.key);
     }, [sb.url, sb.key]);
+    useEffect(() => {
+      if (!navOpen && !intelOpen) return;
+      const onDown = (e) => {
+        if (navOpen && navMenuRef.current && !navMenuRef.current.contains(e.target)) setNavOpen(false);
+        if (intelOpen && intelRef.current && !intelRef.current.contains(e.target)) setIntelOpen(false);
+      };
+      const onKey = (e) => {
+        if (e.key === "Escape") {
+          setNavOpen(false);
+          setIntelOpen(false);
+        }
+      };
+      document.addEventListener("mousedown", onDown);
+      document.addEventListener("keydown", onKey);
+      return () => {
+        document.removeEventListener("mousedown", onDown);
+        document.removeEventListener("keydown", onKey);
+      };
+    }, [navOpen, intelOpen]);
     function applySession(s) {
       var _a2;
       setSession(s);
@@ -2146,6 +2293,80 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
       window.addEventListener("keydown", onKey);
       return () => window.removeEventListener("keydown", onKey);
     }, [search, consentPrompt, showSettings, cedricOpen]);
+    const PasswordField = ({ label, value, onChange, placeholder, autoComplete, onEnter, id }) => {
+      const shown = !!pwShown[id];
+      return /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, label), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: shown ? "text" : "password",
+          value,
+          onChange,
+          placeholder,
+          autoComplete,
+          onKeyDown: (e) => {
+            if (e.key === "Enter" && onEnter) onEnter();
+          },
+          style: { paddingRight: 44, width: "100%", boxSizing: "border-box" }
+        }
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          type: "button",
+          onClick: () => setPwShown((p) => ({ ...p, [id]: !p[id] })),
+          "aria-label": shown ? "Hide password" : "Show password",
+          title: shown ? "Hide password" : "Show password",
+          style: {
+            position: "absolute",
+            right: 6,
+            top: "50%",
+            transform: "translateY(-50%)",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: 6,
+            display: "flex",
+            alignItems: "center",
+            color: shown ? "#2F7BD9" : "#8FA3BC"
+          }
+        },
+        shown ? (
+          // eye-off
+          /* @__PURE__ */ React.createElement(
+            "svg",
+            {
+              width: "18",
+              height: "18",
+              viewBox: "0 0 24 24",
+              fill: "none",
+              stroke: "currentColor",
+              strokeWidth: "2",
+              strokeLinecap: "round",
+              strokeLinejoin: "round"
+            },
+            /* @__PURE__ */ React.createElement("path", { d: "M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19M6.61 6.61A18.15 18.15 0 0 0 2 12s3 8 10 8a9.7 9.7 0 0 0 5.39-1.61" }),
+            /* @__PURE__ */ React.createElement("path", { d: "M14.12 14.12a3 3 0 1 1-4.24-4.24" }),
+            /* @__PURE__ */ React.createElement("path", { d: "m2 2 20 20" })
+          )
+        ) : (
+          // eye
+          /* @__PURE__ */ React.createElement(
+            "svg",
+            {
+              width: "18",
+              height: "18",
+              viewBox: "0 0 24 24",
+              fill: "none",
+              stroke: "currentColor",
+              strokeWidth: "2",
+              strokeLinecap: "round",
+              strokeLinejoin: "round"
+            },
+            /* @__PURE__ */ React.createElement("path", { d: "M2 12s3-8 10-8 10 8 10 8-3 8-10 8-10-8-10-8Z" }),
+            /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "3" })
+          )
+        )
+      )));
+    };
     if (!currentUser) {
       const supaReady = !!(sb.url && sb.key);
       const pw = passwordStrength(authForm.password);
@@ -2232,7 +2453,58 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
           color: "#0B1D33",
           wordBreak: "break-all",
           marginBottom: 18
-        } }, pendingEmail), /* @__PURE__ */ React.createElement(Msg, null), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "#56718A", lineHeight: 1.65, marginBottom: 18 } }, "Click the link in that email to activate your account. The link is valid for 24 hours."), mail && /* @__PURE__ */ React.createElement(
+        } }, pendingEmail), /* @__PURE__ */ React.createElement(Msg, null), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "#56718A", lineHeight: 1.65, marginBottom: 16 } }, "Enter the 6-digit code from that email. It expires in one hour."), /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            style: { display: "flex", gap: 8, justifyContent: "center", marginBottom: 6 },
+            onPaste: (e) => {
+              const t = (e.clipboardData.getData("text") || "").replace(/\D/g, "");
+              if (t.length >= 6) {
+                e.preventDefault();
+                onOtpChange(0, t);
+              }
+            }
+          },
+          otp.map((d, i) => /* @__PURE__ */ React.createElement(
+            "input",
+            {
+              key: i,
+              id: `otp-${i}`,
+              value: d,
+              onChange: (e) => onOtpChange(i, e.target.value),
+              onKeyDown: (e) => onOtpKey(i, e),
+              onFocus: (e) => e.target.select(),
+              inputMode: "numeric",
+              autoComplete: i === 0 ? "one-time-code" : "off",
+              maxLength: 6,
+              "aria-label": `Digit ${i + 1} of 6`,
+              disabled: authBusy,
+              style: {
+                width: 46,
+                height: 56,
+                textAlign: "center",
+                fontSize: 22,
+                fontWeight: 700,
+                fontFamily: "inherit",
+                color: "#0B1D33",
+                border: "2px solid " + (otpErr ? "#E0493E" : d ? "#2F7BD9" : "#D6E3F5"),
+                borderRadius: 9,
+                background: authBusy ? "#F5F7FA" : "#fff",
+                outline: "none",
+                transition: "border-color .15s"
+              }
+            }
+          ))
+        ), authBusy && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "#2F7BD9", fontWeight: 700, marginBottom: 12 } }, /* @__PURE__ */ React.createElement("span", { className: "spin" }), " Checking your code\u2026"), /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            className: "btn",
+            style: { width: "100%", padding: "11px", marginBottom: 14 },
+            disabled: authBusy || otp.join("").length !== 6,
+            onClick: () => doVerifyOtp()
+          },
+          "Verify my email"
+        ), mail && /* @__PURE__ */ React.createElement(
           "a",
           {
             className: "btn",
@@ -2248,16 +2520,18 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
             }
           },
           mail.name
-        ), /* @__PURE__ */ React.createElement(
-          "button",
+        ), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#8FA3BC", marginBottom: 14, lineHeight: 1.5 } }, "Sent a link instead of a code?", " ", /* @__PURE__ */ React.createElement(
+          "a",
           {
-            className: "btn ghost",
-            style: { width: "100%", padding: "11px", marginBottom: 18 },
-            disabled: authBusy,
-            onClick: doCheckVerified
+            href: "#",
+            onClick: (e) => {
+              e.preventDefault();
+              doCheckVerified();
+            },
+            style: { color: "#2F7BD9", fontWeight: 700 }
           },
-          authBusy ? "Checking\u2026" : "I've verified my email"
-        ), /* @__PURE__ */ React.createElement("div", { style: { borderTop: "1px solid #E1EAF6", paddingTop: 16, textAlign: "left" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "#56718A", lineHeight: 1.7 } }, /* @__PURE__ */ React.createElement("b", { style: { color: "#16283E" } }, "Didn\u2019t get it?"), /* @__PURE__ */ React.createElement("br", null), "Check your spam or junk folder first \u2014 verification emails often land there.", " ", resendIn > 0 ? /* @__PURE__ */ React.createElement("span", { style: { color: "#8FA3BC" } }, "You can send it again in ", resendIn, "s.") : /* @__PURE__ */ React.createElement(
+          "Click it, then press here"
+        )), /* @__PURE__ */ React.createElement("div", { style: { borderTop: "1px solid #E1EAF6", paddingTop: 16, textAlign: "left" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "#56718A", lineHeight: 1.7 } }, /* @__PURE__ */ React.createElement("b", { style: { color: "#16283E" } }, "Didn\u2019t get it?"), /* @__PURE__ */ React.createElement("br", null), "Check your spam or junk folder first \u2014 verification emails often land there.", " ", resendIn > 0 ? /* @__PURE__ */ React.createElement("span", { style: { color: "#8FA3BC" } }, "You can send it again in ", resendIn, "s.") : /* @__PURE__ */ React.createElement(
           "a",
           {
             href: "#",
@@ -2363,17 +2637,18 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
             placeholder: "you@company.com",
             autoComplete: "email"
           }
-        )), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Password"), /* @__PURE__ */ React.createElement(
-          "input",
+        )), /* @__PURE__ */ React.createElement(
+          PasswordField,
           {
-            type: "password",
+            id: "signup",
+            label: "Password",
             value: authForm.password,
             onChange: set("password"),
             placeholder: "At least 8 characters",
             autoComplete: "new-password",
-            onKeyDown: (e) => e.key === "Enter" && doSignUp()
+            onEnter: doSignUp
           }
-        )), authForm.password && /* @__PURE__ */ React.createElement("div", { style: { marginTop: -6, marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { height: 4, background: "#EEF3FA", borderRadius: 2, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: {
+        ), authForm.password && /* @__PURE__ */ React.createElement("div", { style: { marginTop: -6, marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { height: 4, background: "#EEF3FA", borderRadius: 2, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: {
           height: "100%",
           width: `${pw.score / 5 * 100}%`,
           background: pw.colour,
@@ -2464,17 +2739,18 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
           placeholder: "you@company.com",
           autoComplete: "email"
         }
-      )), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Password"), /* @__PURE__ */ React.createElement(
-        "input",
+      )), /* @__PURE__ */ React.createElement(
+        PasswordField,
         {
-          type: "password",
+          id: "signin",
+          label: "Password",
           value: authForm.password,
           onChange: set("password"),
           placeholder: "Your password",
           autoComplete: "current-password",
-          onKeyDown: (e) => e.key === "Enter" && doSignIn()
+          onEnter: doSignIn
         }
-      )), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", marginTop: -8, marginBottom: 14 } }, /* @__PURE__ */ React.createElement(
+      ), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", marginTop: -8, marginBottom: 14 } }, /* @__PURE__ */ React.createElement(
         "a",
         {
           href: "#",
@@ -2524,17 +2800,18 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
           placeholder: "username",
           autoComplete: "username"
         }
-      )), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Password"), /* @__PURE__ */ React.createElement(
-        "input",
+      )), /* @__PURE__ */ React.createElement(
+        PasswordField,
         {
-          type: "password",
+          id: "demo",
+          label: "Password",
           value: login.password,
           onChange: (e) => setLogin((p) => ({ ...p, password: e.target.value })),
           placeholder: "password",
           autoComplete: "current-password",
-          onKeyDown: (e) => e.key === "Enter" && doLogin()
+          onEnter: doLogin
         }
-      )), loginErr && /* @__PURE__ */ React.createElement("div", { style: { color: "#B23A31", fontSize: 12.5, marginBottom: 12 } }, loginErr), /* @__PURE__ */ React.createElement("label", { style: {
+      ), loginErr && /* @__PURE__ */ React.createElement("div", { style: { color: "#B23A31", fontSize: 12.5, marginBottom: 12 } }, loginErr), /* @__PURE__ */ React.createElement("label", { style: {
         display: "flex",
         gap: 9,
         alignItems: "flex-start",
@@ -3023,65 +3300,155 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
       setNewUser({ username: "", password: "", displayName: "" });
       notify("User added \u2014 only a hash of the password is retained");
     };
-    return /* @__PURE__ */ React.createElement("div", { className: "ciq" }, /* @__PURE__ */ React.createElement("style", null, CSS), /* @__PURE__ */ React.createElement("div", { className: "nav" }, /* @__PURE__ */ React.createElement("div", { className: "nav-brand", onClick: () => {
+    return /* @__PURE__ */ React.createElement("div", { className: "ciq" }, /* @__PURE__ */ React.createElement("style", null, CSS), /* @__PURE__ */ React.createElement("div", { className: "nav" }, /* @__PURE__ */ React.createElement("div", { className: "nav-left" }, /* @__PURE__ */ React.createElement("div", { className: "nav-brand", onClick: () => {
       setPage("portfolio");
       setSelectedId(null);
-    } }, "Contract", /* @__PURE__ */ React.createElement("span", null, "IQ"), "\xA0App", /* @__PURE__ */ React.createElement("span", { className: "pill blue", style: { marginTop: 0, marginLeft: 10 } }, ED.short), DEMO_MODE && /* @__PURE__ */ React.createElement("span", { className: "pill blue", style: { marginTop: 0, marginLeft: 6 } }, "Demo \u2014 AI off")), /* @__PURE__ */ React.createElement("div", { className: "nav-links" }, /* @__PURE__ */ React.createElement("div", { style: page === "portfolio" ? { color: "#0071e3", fontWeight: 600 } : {}, onClick: () => {
-      setPage("portfolio");
-      setSelectedId(null);
-    } }, "Portfolio"), /* @__PURE__ */ React.createElement("div", { style: page === "actions" ? { color: "#0071e3", fontWeight: 600 } : {}, onClick: () => {
-      setPage("actions");
-    } }, "Ask Cedric actions"), /* @__PURE__ */ React.createElement("div", { style: page === "suppliers" ? { color: "#0071e3", fontWeight: 600 } : {}, onClick: () => {
-      setPage("suppliers");
-      setSelectedId(null);
-    } }, "Suppliers"), /* @__PURE__ */ React.createElement("div", { style: page === "vendorrisk" ? { color: "#0071e3", fontWeight: 600 } : {}, onClick: () => {
-      setPage("vendorrisk");
-      setSelectedId(null);
-    } }, "Vendor risk"), /* @__PURE__ */ React.createElement("div", { style: page === "obligations" ? { color: "#0071e3", fontWeight: 600 } : {}, onClick: () => {
-      setPage("obligations");
-      setSelectedId(null);
-    } }, "Obligations"), /* @__PURE__ */ React.createElement("div", { style: page === "clauses" ? { color: "#0071e3", fontWeight: 600 } : {}, onClick: () => {
-      setPage("clauses");
-      setSelectedId(null);
-    } }, "Clause matrix"), /* @__PURE__ */ React.createElement("div", { style: page === "knowledge" ? { color: "#0071e3", fontWeight: 600 } : {}, onClick: () => {
-      setPage("knowledge");
-      setSelectedId(null);
-    } }, "Knowledge"), /* @__PURE__ */ React.createElement("div", { className: "pub", style: page === "capabilities" ? { color: "#0071e3", fontWeight: 600 } : {}, onClick: () => {
-      setPage("capabilities");
-      setSelectedId(null);
-    } }, "Capabilities"), /* @__PURE__ */ React.createElement("div", { className: "pub", style: page === "pricing" ? { color: "#0071e3", fontWeight: 600 } : {}, onClick: () => {
-      setPage("pricing");
-      setSelectedId(null);
-    } }, "Pricing"), /* @__PURE__ */ React.createElement("div", { className: "pub", style: page === "trust" ? { color: "#0071e3", fontWeight: 600 } : {}, onClick: () => {
-      setPage("trust");
-      setSelectedId(null);
-    } }, "Data Integrity"), /* @__PURE__ */ React.createElement("div", { onClick: () => setShowSettings(true) }, "Settings"), /* @__PURE__ */ React.createElement("span", { className: "user-chip" }, currentUser.displayName, " \xB7 ", currentUser.role), /* @__PURE__ */ React.createElement("div", { onClick: doSignOut }, "Sign out"), /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("svg", { width: "22", height: "24", viewBox: "0 0 48 52", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: "M24 2 L44 13.5 V38.5 L24 50 L4 38.5 V13.5 Z", fill: "none", stroke: "#5FA8F5", strokeWidth: "3.5" }), /* @__PURE__ */ React.createElement("path", { d: "M24 15 L34 21 V33 L24 39 L14 33 V21 Z", fill: "#37D5C3", opacity: "0.9" })), "Contract", /* @__PURE__ */ React.createElement("span", null, "IQ")), /* @__PURE__ */ React.createElement("div", { className: "nav-sep" }), /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        className: "nav-item" + (page === "portfolio" ? " on" : ""),
+        onClick: () => {
+          setPage("portfolio");
+          setSelectedId(null);
+          setNavOpen(false);
+          setIntelOpen(false);
+        }
+      },
+      "Portfolio"
+    ), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" }, ref: intelRef }, /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        className: "nav-item" + (["suppliers", "vendorrisk", "obligations", "clauses", "knowledge"].includes(page) ? " on" : ""),
+        onClick: () => {
+          setIntelOpen((o) => !o);
+          setNavOpen(false);
+        }
+      },
+      "Intelligence",
+      /* @__PURE__ */ React.createElement(
+        "svg",
+        {
+          width: "10",
+          height: "10",
+          viewBox: "0 0 12 12",
+          "aria-hidden": "true",
+          style: { transform: intelOpen ? "rotate(180deg)" : "none", transition: "transform .18s" }
+        },
+        /* @__PURE__ */ React.createElement(
+          "path",
+          {
+            d: "M2 4.5 L6 8.5 L10 4.5",
+            fill: "none",
+            stroke: "currentColor",
+            strokeWidth: "2",
+            strokeLinecap: "round",
+            strokeLinejoin: "round"
+          }
+        )
+      )
+    ), intelOpen && /* @__PURE__ */ React.createElement("div", { className: "nav-menu", style: { right: "auto", left: 0 } }, /* @__PURE__ */ React.createElement("div", { className: "nav-menu-h" }, "Portfolio intelligence"), [
+      ["suppliers", "Suppliers", "Who you buy from, name variants merged"],
+      ["vendorrisk", "Vendor risk", "Exposure if a supplier fails"],
+      ["obligations", "Obligations", "Every commitment, with an owner"],
+      ["clauses", "Clause matrix", "Every contract against every clause"],
+      ["knowledge", "Knowledge", "What your people never wrote down"]
+    ].map(([key, label, blurb]) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key,
+        className: "nav-menu-i",
+        style: page === key ? { background: "#F0F6FE" } : void 0,
+        onClick: () => {
+          setPage(key);
+          setSelectedId(null);
+          setIntelOpen(false);
+        }
+      },
+      /* @__PURE__ */ React.createElement("div", { className: "t", style: page === key ? { color: "#2F7BD9" } : void 0 }, label),
+      /* @__PURE__ */ React.createElement("div", { className: "s" }, blurb)
+    )))), /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        className: "nav-item" + (page === "actions" ? " on" : ""),
+        onClick: () => {
+          setPage("actions");
+          setNavOpen(false);
+          setIntelOpen(false);
+        }
+      },
+      "Ask Cedric actions"
+    )), /* @__PURE__ */ React.createElement("div", { className: "nav-right" }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", display: "flex", alignItems: "center" } }, /* @__PURE__ */ React.createElement(
+      "svg",
+      {
+        width: "14",
+        height: "14",
+        viewBox: "0 0 24 24",
+        fill: "none",
+        stroke: "#7E9CC4",
+        strokeWidth: "2.4",
+        strokeLinecap: "round",
+        "aria-hidden": "true",
+        style: { position: "absolute", left: 11, pointerEvents: "none" }
+      },
+      /* @__PURE__ */ React.createElement("circle", { cx: "11", cy: "11", r: "7" }),
+      /* @__PURE__ */ React.createElement("path", { d: "m20 20-4.3-4.3" })
+    ), /* @__PURE__ */ React.createElement(
       "input",
       {
         ref: searchRef,
+        className: "nav-search",
         value: search,
         onChange: (e) => setSearch(e.target.value),
-        placeholder: "Search all contracts\u2026  \u2318K",
+        placeholder: "Search\u2026  \u2318K",
         onKeyDown: (e) => {
           if (e.key === "Escape") setSearch("");
-        },
-        style: {
-          background: "rgba(255,255,255,0.10)",
-          border: "1px solid rgba(95,168,245,0.32)",
-          borderRadius: 100,
-          padding: "6px 14px",
-          fontSize: 12.5,
-          fontFamily: "inherit",
-          fontWeight: 600,
-          color: "#fff",
-          width: 190,
-          outline: "none"
         }
       }
-    ), /* @__PURE__ */ React.createElement("button", { className: "btn sm", onClick: () => {
+    )), /* @__PURE__ */ React.createElement("button", { className: "btn sm", onClick: () => {
       setPage("portfolio");
       setShowNew(true);
-    } }, "New Contract Record"))), page === "capabilities" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "hero" }, /* @__PURE__ */ React.createElement("h1", null, "Protect cash flow", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("em", null, "before execution.")), /* @__PURE__ */ React.createElement("p", null, "ContractIQ scans commercial documents in seconds \u2014 surfacing drafting mistakes, mismatched timelines and unbalanced liabilities that human eyes routinely overlook.")), /* @__PURE__ */ React.createElement("div", { className: "container" }, /* @__PURE__ */ React.createElement("div", { className: "grid", style: { gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" } }, /* @__PURE__ */ React.createElement("div", { className: "panel", style: { margin: 0 } }, /* @__PURE__ */ React.createElement("h4", null, "Pre-counsel audit"), /* @__PURE__ */ React.createElement("p", null, "Run inbound drafts through the automated parser to neutralise common structural issues before professional review. Deliver pre-vetted, clean documents to counsel \u2014 and cut outside legal bills dramatically.")), /* @__PURE__ */ React.createElement("div", { className: "panel", style: { margin: 0 } }, /* @__PURE__ */ React.createElement("h4", null, "Playbook customisation"), /* @__PURE__ */ React.createElement("p", null, "Calibrate the checking rules to your organisation's risk appetite. The engine cross-examines every clause against your standard positions, so commercial teams never sign off unlimited liability or non-standard payment terms by accident.")), /* @__PURE__ */ React.createElement("div", { className: "panel", style: { margin: 0 } }, /* @__PURE__ */ React.createElement("h4", null, "Structural cross-referencing"), /* @__PURE__ */ React.createElement("p", null, "An active shield against drafting traps: cross-indemnity expansions that quietly pierce your liability caps, or notice windows that contradict each other across schedules \u2014 caught instantly.")), /* @__PURE__ */ React.createElement("div", { className: "panel", style: { margin: 0 } }, /* @__PURE__ */ React.createElement("h4", null, "Ask Cedric"), /* @__PURE__ */ React.createElement("p", null, "A conversational analyst on every contract. Ask about renewal dates, missing clauses, obligations due this quarter or the strongest negotiation lever \u2014 answered only from your ingested data, never invented.")), /* @__PURE__ */ React.createElement("div", { className: "panel", style: { margin: 0 } }, /* @__PURE__ */ React.createElement("h4", null, "A\u2013F risk grading"), /* @__PURE__ */ React.createElement("p", null, "Every analysed contract gets an instant risk grade so stakeholders can wave low-risk agreements through and focus attention where it's needed.")), /* @__PURE__ */ React.createElement("div", { className: "panel", style: { margin: 0 } }, /* @__PURE__ */ React.createElement("h4", null, "Boardroom-ready exports"), /* @__PURE__ */ React.createElement("p", null, "One click turns any analysis into a formatted Word report, PDF or presentation outline \u2014 cost position, compliance checklist, obligations register and negotiation plan included."))), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", marginTop: 36 } }, /* @__PURE__ */ React.createElement("button", { className: "btn", onClick: () => setPage("portfolio") }, "Open your portfolio")))) : page === "pricing" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "hero" }, /* @__PURE__ */ React.createElement("h1", null, "Simple tiers.", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("em", null, "Serious analysis.")), /* @__PURE__ */ React.createElement("p", null, "Start free, scale as your contract estate grows. Unused audits roll over on paid plans.")), /* @__PURE__ */ React.createElement("div", { className: "container" }, /* @__PURE__ */ React.createElement("div", { className: "grid", style: { gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" } }, ["sandbox", "growth", "scale", "enterprise"].map((k) => {
+      setNavOpen(false);
+      setIntelOpen(false);
+    } }, /* @__PURE__ */ React.createElement("span", { className: "nav-label-hide" }, "New Contract Record"), /* @__PURE__ */ React.createElement("span", { style: { display: "none" } }, "New")), /* @__PURE__ */ React.createElement("div", { className: "nav-sep" }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" }, ref: navMenuRef }, /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        className: "nav-avatar" + (navOpen ? " on" : ""),
+        onClick: () => {
+          setNavOpen((o) => !o);
+          setIntelOpen(false);
+        },
+        title: currentUser.displayName,
+        "aria-label": "Account menu",
+        role: "button"
+      },
+      (currentUser.displayName || "?").split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()
+    ), navOpen && /* @__PURE__ */ React.createElement("div", { className: "nav-menu" }, /* @__PURE__ */ React.createElement("div", { style: { padding: "13px 15px", background: "#F7FAFE", borderBottom: "1px solid #EEF3FA" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, fontWeight: 700, color: "#16283E" } }, currentUser.displayName), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: "#7A8DA6", marginTop: 2 } }, currentUser.email || currentUser.username, " \xB7 ", currentUser.role), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { className: "pill blue", style: { marginTop: 0 } }, ED.name), DEMO_MODE && /* @__PURE__ */ React.createElement("span", { className: "pill warn", style: { marginTop: 0 } }, "Demo \u2014 AI off"))), /* @__PURE__ */ React.createElement("div", { className: "nav-menu-i", onClick: () => {
+      setShowSettings(true);
+      setNavOpen(false);
+    } }, /* @__PURE__ */ React.createElement("div", { className: "t" }, "Settings"), /* @__PURE__ */ React.createElement("div", { className: "s" }, "Credits, policy packs, workspace data")), /* @__PURE__ */ React.createElement("div", { className: "nav-menu-h" }, "About the product"), [["capabilities", "Capabilities"], ["pricing", "Pricing"], ["trust", "Data integrity"]].map(([k, l]) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: k,
+        className: "nav-menu-i",
+        onClick: () => {
+          setPage(k);
+          setSelectedId(null);
+          setNavOpen(false);
+        }
+      },
+      /* @__PURE__ */ React.createElement("div", { className: "t", style: page === k ? { color: "#2F7BD9" } : void 0 }, l)
+    )), /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        className: "nav-menu-i",
+        style: { borderBottom: "none" },
+        onClick: () => {
+          setNavOpen(false);
+          doSignOut();
+        }
+      },
+      /* @__PURE__ */ React.createElement("div", { className: "t", style: { color: "#B23A31" } }, "Sign out")
+    ))))), page === "capabilities" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "hero" }, /* @__PURE__ */ React.createElement("h1", null, "Protect cash flow", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("em", null, "before execution.")), /* @__PURE__ */ React.createElement("p", null, "ContractIQ scans commercial documents in seconds \u2014 surfacing drafting mistakes, mismatched timelines and unbalanced liabilities that human eyes routinely overlook.")), /* @__PURE__ */ React.createElement("div", { className: "container" }, /* @__PURE__ */ React.createElement("div", { className: "grid", style: { gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" } }, /* @__PURE__ */ React.createElement("div", { className: "panel", style: { margin: 0 } }, /* @__PURE__ */ React.createElement("h4", null, "Pre-counsel audit"), /* @__PURE__ */ React.createElement("p", null, "Run inbound drafts through the automated parser to neutralise common structural issues before professional review. Deliver pre-vetted, clean documents to counsel \u2014 and cut outside legal bills dramatically.")), /* @__PURE__ */ React.createElement("div", { className: "panel", style: { margin: 0 } }, /* @__PURE__ */ React.createElement("h4", null, "Playbook customisation"), /* @__PURE__ */ React.createElement("p", null, "Calibrate the checking rules to your organisation's risk appetite. The engine cross-examines every clause against your standard positions, so commercial teams never sign off unlimited liability or non-standard payment terms by accident.")), /* @__PURE__ */ React.createElement("div", { className: "panel", style: { margin: 0 } }, /* @__PURE__ */ React.createElement("h4", null, "Structural cross-referencing"), /* @__PURE__ */ React.createElement("p", null, "An active shield against drafting traps: cross-indemnity expansions that quietly pierce your liability caps, or notice windows that contradict each other across schedules \u2014 caught instantly.")), /* @__PURE__ */ React.createElement("div", { className: "panel", style: { margin: 0 } }, /* @__PURE__ */ React.createElement("h4", null, "Ask Cedric"), /* @__PURE__ */ React.createElement("p", null, "A conversational analyst on every contract. Ask about renewal dates, missing clauses, obligations due this quarter or the strongest negotiation lever \u2014 answered only from your ingested data, never invented.")), /* @__PURE__ */ React.createElement("div", { className: "panel", style: { margin: 0 } }, /* @__PURE__ */ React.createElement("h4", null, "A\u2013F risk grading"), /* @__PURE__ */ React.createElement("p", null, "Every analysed contract gets an instant risk grade so stakeholders can wave low-risk agreements through and focus attention where it's needed.")), /* @__PURE__ */ React.createElement("div", { className: "panel", style: { margin: 0 } }, /* @__PURE__ */ React.createElement("h4", null, "Boardroom-ready exports"), /* @__PURE__ */ React.createElement("p", null, "One click turns any analysis into a formatted Word report, PDF or presentation outline \u2014 cost position, compliance checklist, obligations register and negotiation plan included."))), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", marginTop: 36 } }, /* @__PURE__ */ React.createElement("button", { className: "btn", onClick: () => setPage("portfolio") }, "Open your portfolio")))) : page === "pricing" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "hero" }, /* @__PURE__ */ React.createElement("h1", null, "Simple tiers.", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("em", null, "Serious analysis.")), /* @__PURE__ */ React.createElement("p", null, "Start free, scale as your contract estate grows. Unused audits roll over on paid plans.")), /* @__PURE__ */ React.createElement("div", { className: "container" }, /* @__PURE__ */ React.createElement("div", { className: "grid", style: { gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" } }, ["sandbox", "growth", "scale", "enterprise"].map((k) => {
       const e = EDITIONS[k];
       const current = k === EDITION;
       return /* @__PURE__ */ React.createElement("div", { className: "card", key: k, style: {
