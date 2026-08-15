@@ -17,7 +17,11 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 const ANTHROPIC_KEY  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") ?? "";   // e.g. https://you.github.io
-const MODEL          = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-sonnet-4-6";
+// Sonnet 5 is the right default for contract analysis: it handles long
+// documents and structured JSON well, and it is the cheapest tier that
+// does so reliably. Override with the ANTHROPIC_MODEL secret if you want
+// to route a premium tier to Opus 5. See the setup guide for the numbers.
+const MODEL          = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-sonnet-5";
 
 // Crude but effective spend guard while testing: caps how many calls this
 // function will make in a rolling hour, so a mistake (or someone finding

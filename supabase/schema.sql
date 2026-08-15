@@ -1,3 +1,32 @@
+-- ContractIQ — Supabase schema
+-- ===============================================================
+-- FIXED 12 Aug 2026. The previous version failed in the SQL editor with:
+--   ERROR 42804: foreign key constraint "data_points_contract_id_fkey"
+--   cannot be implemented — key columns "contract_id" and "id" are of
+--   incompatible types: uuid and text.
+--
+-- Cause: the app generates its own string contract IDs ("c1", "CTR-1001"),
+-- so contracts.id and documents.id are TEXT, and analyses.id is BIGINT.
+-- Five later columns had been declared UUID. Postgres will not create a
+-- foreign key between columns of different types.
+--
+-- Eight corrections were made:
+--   data_points.contract_id              uuid   -> text
+--   data_points.analysis_id              uuid   -> bigint
+--   jobs.contract_id                     uuid   -> text
+--   analysis_policy_snapshot.analysis_id uuid   -> bigint
+--   obligation_tracking.contract_id      uuid   -> text
+--   documents_search_refresh()   new.text -> new.extracted_text
+--   the trigger's watched column list    text   -> extracted_text
+--   search_documents()  return types uuid -> text, d.text -> d.extracted_text
+--
+-- The last three would not have surfaced until search was used, so they
+-- are fixed here too rather than waiting to bite later.
+--
+-- Safe to re-run: every statement uses IF NOT EXISTS or CREATE OR REPLACE.
+-- If you already ran the broken version, see RUN_ME_FIRST.sql.
+-- ===============================================================
+
 -- ContractIQ · Supabase schema (v2 — tenant-isolated)
 -- Run in the Supabase SQL editor before first sync.
 --
@@ -191,8 +220,8 @@ create policy "own account rows" on analyses
 create table if not exists data_points (
   id           bigint generated always as identity primary key,
   account_id   uuid not null references accounts(id) on delete cascade,
-  contract_id  uuid not null references contracts(id) on delete cascade,
-  analysis_id  uuid references analyses(id) on delete cascade,
+  contract_id  text not null references contracts(id) on delete cascade,
+  analysis_id  bigint references analyses(id) on delete cascade,
 
   field        text not null,                     -- 'annualValue', 'Limitation of liability', ...
   kind         text not null check (kind in ('extraction','clause','risk','obligation')),
@@ -260,7 +289,7 @@ create or replace view accuracy_by_tier as
 create table if not exists jobs (
   id            uuid primary key default gen_random_uuid(),
   account_id    uuid not null references accounts(id) on delete cascade,
-  contract_id   uuid references contracts(id) on delete cascade,
+  contract_id   text references contracts(id) on delete cascade,
   kind          text not null check (kind in ('ingest','ocr','analysis','reanalysis','export','embed')),
   payload       jsonb not null default '{}'::jsonb,
 
@@ -368,7 +397,7 @@ $$;
 
 -- Record which pack versions an analysis was graded against.
 create table if not exists analysis_policy_snapshot (
-  analysis_id uuid not null references analyses(id) on delete cascade,
+  analysis_id bigint not null references analyses(id) on delete cascade,
   pack_id     uuid not null references policy_packs(id),
   primary key (analysis_id, pack_id)
 );
@@ -497,7 +526,7 @@ create trigger documents_require_consent
 create table if not exists obligation_tracking (
   id            uuid primary key default gen_random_uuid(),
   account_id    uuid not null references accounts(id) on delete cascade,
-  contract_id   uuid not null references contracts(id) on delete cascade,
+  contract_id   text not null references contracts(id) on delete cascade,
   obligation_ix int not null,                   -- index within the analysis register
   obligation    text not null,                  -- denormalised so it survives re-analysis
   party         text check (party in ('us','supplier')),
@@ -538,20 +567,20 @@ language plpgsql as $$
 begin
   new.search_tsv :=
     setweight(to_tsvector('english', coalesce(new.name, '')), 'A') ||
-    setweight(to_tsvector('english', left(coalesce(new.text, ''), 900000)), 'B');
+    setweight(to_tsvector('english', left(coalesce(new.extracted_text, ''), 900000)), 'B');
   return new;
 end $$;
 drop trigger if exists documents_search_tsv on documents;
 create trigger documents_search_tsv
-  before insert or update of name, text on documents
+  before insert or update of name, extracted_text on documents
   for each row execute function documents_search_refresh();
 
 -- Ranked search across a tenant's documents, with a highlighted snippet.
 create or replace function search_documents(acct uuid, q text, lim int default 40)
-returns table (contract_id uuid, document_id uuid, name text, snippet text, rank real)
+returns table (contract_id text, document_id text, name text, snippet text, rank real)
 language sql stable as $$
   select d.contract_id, d.id, d.name,
-         ts_headline('english', coalesce(d.text, ''), websearch_to_tsquery('english', q),
+         ts_headline('english', coalesce(d.extracted_text, ''), websearch_to_tsquery('english', q),
                      'MaxFragments=2,MinWords=8,MaxWords=26'),
          ts_rank(d.search_tsv, websearch_to_tsquery('english', q))
   from documents d

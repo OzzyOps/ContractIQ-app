@@ -58,6 +58,76 @@ setTimeout(function(){
   const DEMO_MODE = false;
   let AI_ENDPOINT = "";
   let AI_AUTH = "";
+  let sbClient = null;
+  let sbConfig = { url: "", key: "" };
+  async function loadSupabaseLib() {
+    var _a;
+    if ((_a = window.supabase) == null ? void 0 : _a.createClient) return window.supabase;
+    await new Promise((res, rej) => {
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js";
+      s.onload = res;
+      s.onerror = () => rej(new Error("Could not load the authentication library"));
+      document.head.appendChild(s);
+    });
+    return window.supabase;
+  }
+  async function getSb(url, key) {
+    if (!url || !key) return null;
+    if (sbClient && sbConfig.url === url && sbConfig.key === key) return sbClient;
+    const lib = await loadSupabaseLib();
+    sbClient = lib.createClient(url, key, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+    });
+    sbConfig = { url, key };
+    return sbClient;
+  }
+  const authRedirectUrl = () => window.location.origin + window.location.pathname;
+  function friendlyAuthError(msg) {
+    const m = (msg || "").toLowerCase();
+    if (m.includes("invalid login credentials"))
+      return "That email and password combination was not recognised. Check for typos, or reset your password below.";
+    if (m.includes("email not confirmed"))
+      return "Your email address has not been verified yet. Check your inbox for the link we sent.";
+    if (m.includes("already registered"))
+      return "An account already exists for that address. Try signing in, or reset your password.";
+    if (m.includes("password should be at least"))
+      return "Your password needs to be at least 8 characters.";
+    if (m.includes("rate limit") || m.includes("too many"))
+      return "Too many attempts. Wait a minute and try again.";
+    if (m.includes("redirect") || m.includes("not allowed"))
+      return "This address is not on the allow-list in Supabase. Add it under Authentication \u2192 URL Configuration.";
+    return msg || "Something went wrong. Please try again.";
+  }
+  function passwordStrength(pw) {
+    if (!pw) return { score: 0, label: "", colour: "#C7D3E3" };
+    let s = 0;
+    if (pw.length >= 8) s++;
+    if (pw.length >= 12) s++;
+    if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) s++;
+    if (/[0-9]/.test(pw)) s++;
+    if (/[^A-Za-z0-9]/.test(pw)) s++;
+    const map = [
+      { label: "Too short", colour: "#E0493E" },
+      { label: "Weak", colour: "#E0493E" },
+      { label: "Fair", colour: "#EE9420" },
+      { label: "Good", colour: "#2F7BD9" },
+      { label: "Strong", colour: "#2E9E6B" },
+      { label: "Very strong", colour: "#2E9E6B" }
+    ];
+    return { score: s, ...map[Math.min(s, 5)] };
+  }
+  function mailProviderLink(email) {
+    const domain = (String(email).split("@")[1] || "").toLowerCase();
+    if (/gmail|googlemail/.test(domain))
+      return { name: "Open Gmail", url: "https://mail.google.com/mail/u/0/" };
+    if (/outlook|hotmail|live|msn/.test(domain))
+      return { name: "Open Outlook", url: "https://outlook.live.com/mail/0/inbox" };
+    if (/yahoo/.test(domain)) return { name: "Open Yahoo Mail", url: "https://mail.yahoo.com/" };
+    if (/icloud|me\.com|mac\.com/.test(domain)) return { name: "Open iCloud Mail", url: "https://www.icloud.com/mail" };
+    if (/proton/.test(domain)) return { name: "Open Proton Mail", url: "https://mail.proton.me/" };
+    return null;
+  }
   const configureAI = (supabaseUrl, anonKey) => {
     AI_ENDPOINT = supabaseUrl ? `${supabaseUrl.replace(/\/$/, "")}/functions/v1/anthropic-proxy` : "";
     AI_AUTH = anonKey || "";
@@ -202,6 +272,75 @@ setTimeout(function(){
     })).sort((a, b) => b.spend - a.spend);
     return { list, dupes, overlaps, multiContract: list.filter((g) => g.count > 1) };
   }
+  function vendorRisk(contracts) {
+    const groups = supplierIntelligence(contracts);
+    const totalSpend = contracts.reduce((s, c) => s + (Number(c.annualValue) || 0), 0) || 1;
+    const CHECKS = [
+      { key: "liability", label: "Liability cap", look: /liabilit/i },
+      { key: "insurance", label: "Insurance", look: /insur/i },
+      { key: "dataprot", label: "Data protection", look: /data protection|gdpr|dpa|personal data/i },
+      { key: "security", label: "Security commitments", look: /security|iso 27001|soc ?2|encryp/i },
+      { key: "continuity", label: "Business continuity", look: /continuity|disaster|resilien/i },
+      { key: "exit", label: "Exit assistance", look: /exit|transition|migrat/i },
+      { key: "audit", label: "Audit rights", look: /audit|inspect/i },
+      { key: "subco", label: "Subcontracting", look: /subcontract|sub-processor|subprocessor/i }
+    ];
+    return groups.list.map((g) => {
+      var _a;
+      const clauses = g.contracts.flatMap((c) => {
+        var _a2, _b;
+        return ((_b = (_a2 = c.analysis) == null ? void 0 : _a2.compliance) == null ? void 0 : _b.clauses) || [];
+      });
+      const findings = CHECKS.map((chk) => {
+        const hit = clauses.find((cl) => chk.look.test(cl.clause || ""));
+        return { ...chk, status: hit ? hit.status : "unknown", note: hit == null ? void 0 : hit.note };
+      });
+      const present = findings.filter((f) => f.status === "present").length;
+      const missing = findings.filter((f) => f.status === "missing").length;
+      const spendShare = g.spend / totalSpend;
+      const analysed = g.contracts.filter((c) => c.analysis).length;
+      const worstGradeScore = (_a = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5 }[g.worstGrade]) != null ? _a : null;
+      let criticality = "Low";
+      if (spendShare >= 0.2 || g.count >= 3) criticality = "High";
+      else if (spendShare >= 0.08 || g.count >= 2) criticality = "Medium";
+      const components = [
+        {
+          label: "Missing protections",
+          weight: Math.min(40, missing * 8),
+          detail: `${missing} of ${CHECKS.length} not evidenced`
+        },
+        {
+          label: "Spend concentration",
+          weight: Math.round(Math.min(25, spendShare * 100)),
+          detail: `${(spendShare * 100).toFixed(1)}% of portfolio spend`
+        },
+        {
+          label: "Contract risk grade",
+          weight: worstGradeScore === null ? 10 : worstGradeScore * 5,
+          detail: g.worstGrade ? `Worst grade ${g.worstGrade}` : "Not yet analysed"
+        },
+        {
+          label: "Unanalysed contracts",
+          weight: (g.count - analysed) * 6,
+          detail: `${g.count - analysed} of ${g.count} not analysed`
+        }
+      ];
+      const score = Math.min(100, components.reduce((s, c) => s + c.weight, 0));
+      const band = score >= 55 ? "High" : score >= 30 ? "Medium" : "Low";
+      return {
+        ...g,
+        findings,
+        present,
+        missing,
+        criticality,
+        score,
+        band,
+        components,
+        spendShare,
+        analysed
+      };
+    }).sort((a, b) => b.score - a.score);
+  }
   const obligationKey = (contractId, i) => `${contractId}::${i}`;
   function allObligations(contracts, tracking) {
     var _a;
@@ -261,6 +400,220 @@ setTimeout(function(){
     }
     return Object.values(bySpeaker).map((s) => ({ ...s, contracts: [...s.contracts], total: s.insights.length + s.commitments.length })).sort((a, b) => b.total - a.total);
   }
+  const CEDRIC_ACTIONS = [
+    // ── Renewal and notice ──
+    {
+      id: "ren-1",
+      cat: "Renewal & notice",
+      title: "When must I act?",
+      what: "The date you have to serve notice by, not the date the contract ends.",
+      prompt: "What is the notice deadline for this contract \u2014 the last date I can serve notice of non-renewal? State the exact date, how many days from today that is, whether the contract auto-renews if I miss it, and quote the clause you read it from."
+    },
+    {
+      id: "ren-2",
+      cat: "Renewal & notice",
+      title: "Is the notice period consistent?",
+      what: "Catches contracts that state different notice periods in different places.",
+      prompt: "Check every document for statements about the notice period. If more than one figure appears anywhere \u2014 in the main terms, a schedule, an amendment or a commercial summary \u2014 list each figure with the clause it came from and tell me they conflict. Do not pick one."
+    },
+    {
+      id: "ren-3",
+      cat: "Renewal & notice",
+      title: "What happens if I do nothing?",
+      what: "The cost of letting it roll, stated plainly.",
+      prompt: "If I take no action before the notice deadline, what happens? Cover the renewal term length, any price increase that applies on renewal, whether the increase is capped, and what the total cost of that renewal period would be."
+    },
+    {
+      id: "ren-4",
+      cat: "Renewal & notice",
+      title: "Draft a notice of non-renewal",
+      what: "A starting point for the letter, using the contract's own requirements.",
+      prompt: "Draft a formal notice of non-renewal for this contract. Follow whatever the contract requires for valid notice \u2014 the recipient, the method of delivery, and the notice period. Keep it short and businesslike, and flag anything I need to fill in."
+    },
+    // ── Cost and savings ──
+    {
+      id: "cost-1",
+      cat: "Cost & savings",
+      title: "Where is the money?",
+      what: "Ranked savings with the argument for each.",
+      prompt: "List every saving available on this contract, ranked by how realistically winnable it is. For each one give an estimated annual value, the leverage I have, and the specific argument to make. Be honest about which ones are weak."
+    },
+    {
+      id: "cost-2",
+      cat: "Cost & savings",
+      title: "Am I paying for things nobody uses?",
+      what: "Dormant licences, unused modules, over-provisioned volume.",
+      prompt: "Compare what this contract entitles us to against any usage or licence data that has been ingested. Identify anything we pay for and do not use \u2014 dormant seats, unused modules, over-provisioned volume \u2014 with the annual cost of each."
+    },
+    {
+      id: "cost-3",
+      cat: "Cost & savings",
+      title: "How has the price moved?",
+      what: "Uplift history and whether it is capped.",
+      prompt: "Show the price history of this contract. What was the original charge, what is it now, and what uplift has been applied each year? Is there a cap on future increases, and if so what is it? If there is no cap, say so plainly."
+    },
+    {
+      id: "cost-4",
+      cat: "Cost & savings",
+      title: "Prepare my negotiation position",
+      what: "A one-page brief before you get on the call.",
+      prompt: "Prepare a negotiation brief for this contract. Cover: our current position and spend, the three strongest asks in priority order, what we can concede, the supplier's likely counter-arguments, and our walk-away position. Keep it to one page."
+    },
+    // ── Risk and liability ──
+    {
+      id: "risk-1",
+      cat: "Risk & liability",
+      title: "What is my exposure?",
+      what: "Liability caps, exclusions and what falls outside them.",
+      prompt: "Explain my liability exposure under this contract. What is the cap, what does it apply to, what is excluded from it, and are there any uncapped liabilities? Compare that to what would be normal for a contract of this type and value."
+    },
+    {
+      id: "risk-2",
+      cat: "Risk & liability",
+      title: "How badly can this end?",
+      what: "The worst realistic outcome and what drives it.",
+      prompt: "What is the worst realistic commercial outcome under this contract, and what would cause it? Cover termination costs, exit charges, notice traps, minimum commitments and any automatic extension. Give the figure where you can."
+    },
+    {
+      id: "risk-3",
+      cat: "Risk & liability",
+      title: "Can I get out early?",
+      what: "Termination rights and what they cost.",
+      prompt: "What are my rights to terminate this contract early? Cover termination for convenience, for breach, and for insolvency. For each, state the notice required and any payment triggered. If there is no right to terminate for convenience, say so clearly."
+    },
+    {
+      id: "risk-4",
+      cat: "Risk & liability",
+      title: "What if they fail to deliver?",
+      what: "Service levels, credits and whether they are your only remedy.",
+      prompt: "What happens if the supplier fails to meet the agreed service levels? Cover the measurement method, the service credits, any cap on those credits, whether credits are my sole remedy, and whether repeated failure gives me a right to terminate."
+    },
+    // ── Compliance and data ──
+    {
+      id: "comp-1",
+      cat: "Compliance & data",
+      title: "What clauses are missing?",
+      what: "Checked against what a contract of this type should contain.",
+      prompt: "Which clauses that I would normally expect in a contract of this type are missing or weak? For each, explain why it matters, what the risk is, and suggest the position I should ask for."
+    },
+    {
+      id: "comp-2",
+      cat: "Compliance & data",
+      title: "Is the data protection adequate?",
+      what: "Controller/processor roles, transfers, breach notice, sub-processors.",
+      prompt: "Assess the data protection provisions. Cover controller and processor roles, the lawful basis for any transfers, breach notification timescales, sub-processor consent, audit rights and deletion on termination. Flag anything missing or below standard."
+    },
+    {
+      id: "comp-3",
+      cat: "Compliance & data",
+      title: "Where does our data actually live?",
+      what: "Residency, transfers and the safeguards behind them.",
+      prompt: "Where is our data stored and processed under this contract? Identify the stated locations, any transfers outside them, the safeguards relied on, and whether we have the right to be told before that changes."
+    },
+    {
+      id: "comp-4",
+      cat: "Compliance & data",
+      title: "What can I audit?",
+      what: "Your inspection rights and their limits.",
+      prompt: "What audit and inspection rights do I have? How often, on what notice, at whose cost, and what happens if an audit finds a problem? Note anything that limits those rights."
+    },
+    // ── Obligations ──
+    {
+      id: "ob-1",
+      cat: "Obligations",
+      title: "What do we have to do?",
+      what: "Our side of the bargain, with dates.",
+      prompt: "List every obligation this contract places on us, with the deadline or frequency for each. Mark anything that is overdue or falls in the next ninety days. Note which ones have a consequence attached if we miss them."
+    },
+    {
+      id: "ob-2",
+      cat: "Obligations",
+      title: "What do they have to do?",
+      what: "The supplier's commitments, and how to prove a breach.",
+      prompt: "List every obligation this contract places on the supplier, with the deadline or frequency. For each, tell me how I would evidence a failure and what remedy the contract gives me."
+    },
+    {
+      id: "ob-3",
+      cat: "Obligations",
+      title: "What is due this quarter?",
+      what: "A short list you can act on now.",
+      prompt: "What obligations, deadlines, reviews, reports or renewals fall due in the next ninety days? Give me a dated list in order, saying who owns each one if the contract names anybody."
+    },
+    // ── Supplier and consolidation ──
+    {
+      id: "sup-1",
+      cat: "Supplier & consolidation",
+      title: "How dependent are we?",
+      what: "Concentration and lock-in, honestly assessed.",
+      prompt: "How dependent are we on this supplier? Consider the share of spend, how easily we could switch, exit assistance in the contract, data portability, and anything that creates lock-in. Say plainly how strong our negotiating position is."
+    },
+    {
+      id: "sup-2",
+      cat: "Supplier & consolidation",
+      title: "Could this be consolidated?",
+      what: "Overlap with other agreements in the estate.",
+      prompt: "Looking across the whole portfolio, does this contract overlap with any other agreement \u2014 the same supplier under a different name, or a different supplier providing a similar service? Estimate what combining them might be worth."
+    },
+    {
+      id: "sup-3",
+      cat: "Supplier & consolidation",
+      title: "What is their risk to us?",
+      what: "Third-party risk in plain terms.",
+      prompt: "Assess this supplier as a third-party risk. Cover the criticality of what they provide, the insurance and security commitments in the contract, business continuity provisions, their access to our data or systems, and what would happen if they failed."
+    },
+    // ── Knowledge and people ──
+    {
+      id: "kn-1",
+      cat: "Knowledge & people",
+      title: "What was said but never written down?",
+      what: "Verbal commitments checked against the signed terms.",
+      prompt: "From any meeting transcripts, list commitments, concessions or assurances that do not appear in the signed contract. For each, say who said it, when, and whether it contradicts or merely supplements the written terms. Be clear these are not enforceable as they stand."
+    },
+    {
+      id: "kn-2",
+      cat: "Knowledge & people",
+      title: "Who holds the history?",
+      what: "Key-person risk on this relationship.",
+      prompt: "Who in our organisation holds knowledge about this contract that exists nowhere in writing? What would we lose if they left tomorrow, and what should be documented before that happens?"
+    },
+    {
+      id: "kn-3",
+      cat: "Knowledge & people",
+      title: "Brief me before the meeting",
+      what: "Everything you need in the ten minutes beforehand.",
+      prompt: "I have a meeting about this contract shortly. Give me a briefing: where we stand commercially, the live issues, what was agreed verbally that is not in the paperwork, the deadlines coming up, and the three questions I should ask."
+    },
+    // ── Cross-document ──
+    {
+      id: "xd-1",
+      cat: "Cross-document checks",
+      title: "Does the spend exceed the cap?",
+      what: "Purchase orders against the limit in the SOW above them.",
+      prompt: "Compare every purchase order and invoice against the value caps in the statements of work and the main agreement. Has the spend exceeded any cap? If so, by how much, and was a change order ever raised? Name both documents and the figures."
+    },
+    {
+      id: "xd-2",
+      cat: "Cross-document checks",
+      title: "Do the documents contradict each other?",
+      what: "Rates, dates, terms that disagree between files.",
+      prompt: "Read every ingested document against the others and find contradictions \u2014 rates, payment terms, notice periods, dates or scope that disagree between documents. For each conflict, name both documents, quote both figures, and say which should prevail under the order of precedence."
+    },
+    {
+      id: "xd-3",
+      cat: "Cross-document checks",
+      title: "Has an amendment changed the deal?",
+      what: "What the amendments actually did to the original terms.",
+      prompt: "Identify every amendment, variation or change order. For each, state what it changed from and to, when it took effect, and whether the current commercial position reflects the amended terms rather than the original."
+    },
+    {
+      id: "xd-4",
+      cat: "Cross-document checks",
+      title: "Is anything unsigned or missing?",
+      what: "Gaps in the paper trail.",
+      prompt: "Reviewing everything ingested, what appears to be missing from the paper trail? Referenced schedules that are not present, unsigned documents, an amendment mentioned but not supplied, or a change agreed verbally with no corresponding paperwork."
+    }
+  ];
+  const CEDRIC_CATEGORIES = [...new Set(CEDRIC_ACTIONS.map((a) => a.cat))];
   const DEFAULT_POLICY_PACKS = [
     {
       id: "uk-core",
@@ -613,6 +966,13 @@ setTimeout(function(){
   .hero p { font-size: 17px; color: #BFD5EF; margin-top: 12px; }
   .container { max-width: 1080px; margin: 0 auto; padding: 46px 28px 110px; }
   .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 0 0 44px; }
+  /* Four-across stat strip used by the portfolio-level pages. This was
+     referenced by Suppliers, Obligations, Knowledge and Vendor risk but
+     never actually defined, so those rows stacked vertically. */
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .grid4 > div { background: #F5F9FE; border: 1px solid #E1EAF6; border-radius: 7px;
+                 padding: 14px 16px; border-left: 3px solid #2F7BD9; }
+  .grid4 .x { font-size: 24px; margin-top: 4px; }
   .stat { background: #F5F9FE; border-radius: 6px; padding: 22px; border-left: 4px solid #2F7BD9; }
   .stat .v { font-size: 27px; font-weight: 700; color: #0B1D33; }
   .stat .l { font-size: 11px; color: #62748B; margin-top: 5px; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; }
@@ -748,7 +1108,7 @@ setTimeout(function(){
   .cedric-input input:focus { border-color: #2F7BD9; }
   .cedric-sugs { padding: 0 18px 8px; display: flex; gap: 6px; flex-wrap: wrap; background: #F5F9FE; }
   .cedric-sugs button { background: #E5F0FD; color: #1D5FB8; border: none; border-radius: 100px; padding: 6px 13px; font-size: 11.5px; font-weight: 700; cursor: pointer; font-family: inherit; }
-  @media (max-width: 760px) { .stat-row { grid-template-columns: 1fr 1fr; } .frow { grid-template-columns: 1fr; } }
+  @media (max-width: 760px) { .stat-row { grid-template-columns: 1fr 1fr; } .grid4 { grid-template-columns: 1fr 1fr; } .frow { grid-template-columns: 1fr; } }
   @media (max-width: 900px) { .nav-links .pub, .nav-links .user-chip { display: none; } .nav-links { gap: 14px; } }
 `;
   const fmtMoney = (v, c = "GBP") => v == null ? "\u2014" : new Intl.NumberFormat("en-GB", { style: "currency", currency: c || "GBP", maximumFractionDigits: 0 }).format(v);
@@ -976,25 +1336,7 @@ ${d.text || "(binary file \u2014 metadata only)"}`;
     }
     return best;
   }
-  async function runAnalysis(contract, customPlaybook, policyPacks) {
-    if (DEMO_MODE) {
-      await new Promise((r) => setTimeout(r, 1600));
-      const sample = JSON.parse(JSON.stringify(SAMPLE_ANALYSIS));
-      if (!ED.crossClause) {
-        sample.risks = sample.risks.filter((r) => !/cross|conflict|purchase order|rate card/i.test(r.title + r.detail));
-        sample.opportunities = sample.opportunities.slice(0, 2).concat([{
-          title: "Cross-document conflict review",
-          savingEstimate: "Not assessed",
-          detail: "Several documents are ingested. Advanced cross-clause analysis \u2014 which reads purchase orders, SOWs and framework terms against each other to find cap breaches, rate-card mismatches and contradictory notice periods \u2014 is available on the Growth and Enterprise editions."
-        }]);
-        if (sample.knowledge) {
-          sample.knowledge.verbalCommitments = [];
-          sample.knowledge.summary += " Cross-checking verbal commitments against the signed terms is available on the Growth and Enterprise editions.";
-        }
-        sample.execSummary += " This Sandbox analysis covers each document's own clauses; cross-document conflict detection is available on paid editions.";
-      }
-      return sample;
-    }
+  function analysisPromptFor(contract, customPlaybook, policyPacks) {
     const playbookBlock = ED.playbook && (customPlaybook == null ? void 0 : customPlaybook.trim()) ? `
 
 CUSTOM PLAYBOOK \u2014 this organisation's own vetting rules. Grade the contract against THESE positions as well as standard practice; deviations from the playbook must lower healthScore and riskGrade and appear in compliance/risks:
@@ -1077,6 +1419,50 @@ CONFIDENCE SCORING \u2014 this is a safety mechanism, not a formality. Score eve
 Do NOT inflate confidence. A wrongly-high score sends an incorrect value straight into a commercial decision without human review, which is the most damaging failure this system can produce. Under-confidence merely costs a few seconds of checking. When torn between two bands, choose the lower one. Never score above 50 for anything taken only from a meeting transcript. Emit a dataPoints entry for every field in "extracted", every clause in compliance.clauses, and every risk.
 
 Only put values in "extracted" that are stated in or directly inferable from the documents; use null otherwise. Do not extract contract values, dates or terms from a transcript alone \u2014 spoken figures are unreliable; treat them as claims to verify. For "compliance", assess against standard UK enterprise contracting practice (UK GDPR / Data Protection Act 2018, Bribery Act 2010, Modern Slavery Act 2015 where relevant); mark clauses "unclear" if documents are insufficient to judge. Be specific, commercially sharp and realistic.`;
+    return prompt;
+  }
+  async function sha256Short(s) {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s || ""));
+    return Array.from(new Uint8Array(buf)).slice(0, 8).map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  const buildAnalysisPrompt = (contract, customPlaybook, policyPacks) => analysisPromptFor(contract, customPlaybook, policyPacks);
+  async function runAnalysis(contract, customPlaybook, policyPacks) {
+    if (DEMO_MODE) {
+      await new Promise((r) => setTimeout(r, 1600));
+      const sample = JSON.parse(JSON.stringify(SAMPLE_ANALYSIS));
+      const own = {
+        name: contract.name,
+        category: contract.category,
+        annualValue: contract.annualValue,
+        currency: contract.currency,
+        startDate: contract.startDate,
+        endDate: contract.endDate,
+        noticePeriodDays: contract.noticePeriodDays,
+        autoRenew: contract.autoRenew,
+        owner: contract.owner,
+        users: contract.users
+      };
+      sample.extracted = { ...sample.extracted };
+      for (const [k, v] of Object.entries(own)) {
+        if (v !== null && v !== void 0 && v !== "") sample.extracted[k] = v;
+      }
+      sample.dataPoints = (sample.dataPoints || []).map((dp) => own[dp.field] !== void 0 && own[dp.field] !== null && own[dp.field] !== "" ? { ...dp, value: String(own[dp.field]) } : dp);
+      if (!ED.crossClause) {
+        sample.risks = sample.risks.filter((r) => !/cross|conflict|purchase order|rate card/i.test(r.title + r.detail));
+        sample.opportunities = sample.opportunities.slice(0, 2).concat([{
+          title: "Cross-document conflict review",
+          savingEstimate: "Not assessed",
+          detail: "Several documents are ingested. Advanced cross-clause analysis \u2014 which reads purchase orders, SOWs and framework terms against each other to find cap breaches, rate-card mismatches and contradictory notice periods \u2014 is available on the Growth and Enterprise editions."
+        }]);
+        if (sample.knowledge) {
+          sample.knowledge.verbalCommitments = [];
+          sample.knowledge.summary += " Cross-checking verbal commitments against the signed terms is available on the Growth and Enterprise editions.";
+        }
+        sample.execSummary += " This Sandbox analysis covers each document's own clauses; cross-document conflict detection is available on paid editions.";
+      }
+      return sample;
+    }
+    const prompt = analysisPromptFor(contract, customPlaybook, policyPacks);
     if (!AI_ENDPOINT) throw aiUnavailable();
     const res = await fetch(AI_ENDPOINT, {
       method: "POST",
@@ -1389,6 +1775,17 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
     const [login, setLogin] = useState({ username: "", password: "" });
     const [loginErr, setLoginErr] = useState(null);
     const [acceptedTerms, setAcceptedTerms] = useState(false);
+    const [authView, setAuthView] = useState("signin");
+    const [authBusy, setAuthBusy] = useState(false);
+    const [authMsg, setAuthMsg] = useState(null);
+    const [authForm, setAuthForm] = useState({ email: "", password: "", fullName: "", company: "" });
+    const [pendingEmail, setPendingEmail] = useState("");
+    const [resendIn, setResendIn] = useState(0);
+    const [session, setSession] = useState(null);
+    const [useDemoAuth, setUseDemoAuth] = useState(false);
+    const [asyncMode, setAsyncMode] = useState(true);
+    const [activeJobs, setActiveJobs] = useState([]);
+    const [accountId, setAccountId] = useState(null);
     const [legalView, setLegalView] = useState(null);
     const [contracts, setContracts] = useState(seedContracts);
     const [selectedId, setSelectedId] = useState(null);
@@ -1449,6 +1846,9 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
     const [cedricOpen, setCedricOpen] = useState(false);
     const [cedricMsgs, setCedricMsgs] = useState([]);
     const [cedricInput, setCedricInput] = useState("");
+    const [actionCat, setActionCat] = useState("All");
+    const [actionSearch, setActionSearch] = useState("");
+    const [copiedAction, setCopiedAction] = useState(null);
     const [cedricBusy, setCedricBusy] = useState(false);
     const cedricEnd = useRef(null);
     useEffect(() => {
@@ -1474,6 +1874,144 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
         return s + (((_b2 = (_a2 = c.analysis) == null ? void 0 : _a2.risks) == null ? void 0 : _b2.filter((r) => r.severity === "high").length) || 0);
       }, 0)
     };
+    const authGuard = async () => {
+      if (!sb.url || !sb.key) {
+        setAuthMsg({ kind: "err", text: "Add your Supabase project URL and anon key in Settings first \u2014 or use the demo sign-in." });
+        return null;
+      }
+      try {
+        return await getSb(sb.url, sb.key);
+      } catch (e) {
+        setAuthMsg({ kind: "err", text: friendlyAuthError(e.message) });
+        return null;
+      }
+    };
+    const doSignUp = async () => {
+      if (!acceptedTerms) return setAuthMsg({ kind: "err", text: "Please accept the Terms, Privacy Policy and DPA to create an account." });
+      const { email, password, fullName, company } = authForm;
+      if (!email.trim() || !password) return setAuthMsg({ kind: "err", text: "Enter your email address and a password." });
+      if (password.length < 8) return setAuthMsg({ kind: "err", text: "Your password needs to be at least 8 characters." });
+      const client = await authGuard();
+      if (!client) return;
+      setAuthBusy(true);
+      setAuthMsg(null);
+      const { data, error } = await client.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          emailRedirectTo: authRedirectUrl(),
+          data: { full_name: fullName.trim() || null, company: company.trim() || null }
+        }
+      });
+      setAuthBusy(false);
+      if (error) return setAuthMsg({ kind: "err", text: friendlyAuthError(error.message) });
+      setPendingEmail(email.trim());
+      setResendIn(60);
+      setAuthView("verify");
+      if (data == null ? void 0 : data.session) applySession(data.session);
+    };
+    const doSignIn = async () => {
+      const { email, password } = authForm;
+      if (!email.trim() || !password) return setAuthMsg({ kind: "err", text: "Enter your email address and password." });
+      const client = await authGuard();
+      if (!client) return;
+      setAuthBusy(true);
+      setAuthMsg(null);
+      const { data, error } = await client.auth.signInWithPassword({ email: email.trim(), password });
+      setAuthBusy(false);
+      if (error) {
+        if (String(error.message).toLowerCase().includes("email not confirmed")) {
+          setPendingEmail(email.trim());
+          setResendIn(0);
+          setAuthView("verify");
+          return setAuthMsg({ kind: "warn", text: "Your address still needs verifying." });
+        }
+        return setAuthMsg({ kind: "err", text: friendlyAuthError(error.message) });
+      }
+      if (data == null ? void 0 : data.session) {
+        applySession(data.session);
+        client.rpc("record_terms_acceptance", { version: "2026.1" }).then(null, () => {
+        });
+      }
+    };
+    const doOAuth = async (provider) => {
+      const client = await authGuard();
+      if (!client) return;
+      setAuthBusy(true);
+      setAuthMsg(null);
+      const { error } = await client.auth.signInWithOAuth({
+        provider,
+        options: { redirectTo: authRedirectUrl() }
+      });
+      if (error) {
+        setAuthBusy(false);
+        setAuthMsg({ kind: "err", text: friendlyAuthError(error.message) });
+      }
+    };
+    const doResendVerification = async () => {
+      if (resendIn > 0) return;
+      const client = await authGuard();
+      if (!client) return;
+      setAuthBusy(true);
+      const { error } = await client.auth.resend({
+        type: "signup",
+        email: pendingEmail,
+        options: { emailRedirectTo: authRedirectUrl() }
+      });
+      setAuthBusy(false);
+      setResendIn(60);
+      setAuthMsg(error ? { kind: "err", text: friendlyAuthError(error.message) } : { kind: "ok", text: `Sent again to ${pendingEmail}. It can take a minute to arrive.` });
+    };
+    const doCheckVerified = async () => {
+      var _a2, _b2;
+      const client = await authGuard();
+      if (!client) return;
+      setAuthBusy(true);
+      const { data } = await client.auth.getSession();
+      if ((_b2 = (_a2 = data == null ? void 0 : data.session) == null ? void 0 : _a2.user) == null ? void 0 : _b2.email_confirmed_at) {
+        applySession(data.session);
+        setAuthMsg(null);
+      } else setAuthMsg({ kind: "warn", text: "Not verified yet. Click the link in the email, then try again." });
+      setAuthBusy(false);
+    };
+    const doForgotPassword = async () => {
+      if (!authForm.email.trim()) return setAuthMsg({ kind: "err", text: "Enter the email address on your account." });
+      const client = await authGuard();
+      if (!client) return;
+      setAuthBusy(true);
+      await client.auth.resetPasswordForEmail(authForm.email.trim(), { redirectTo: authRedirectUrl() });
+      setAuthBusy(false);
+      setAuthMsg({ kind: "ok", text: `If an account exists for ${authForm.email.trim()}, a reset link is on its way.` });
+      setResendIn(60);
+    };
+    const doSignOut = async () => {
+      var _a2;
+      try {
+        const c = await getSb(sb.url, sb.key);
+        await ((_a2 = c == null ? void 0 : c.auth) == null ? void 0 : _a2.signOut());
+      } catch (e) {
+      }
+      setSession(null);
+      setCurrentUser(null);
+      setCedricOpen(false);
+      setAuthView("signin");
+      setAuthForm({ email: "", password: "", fullName: "", company: "" });
+    };
+    const canQueue = () => asyncMode && !!session && !!accountId && !!sb.url && !DEMO_MODE;
+    const enqueueAnalysis = async (contract, kind) => {
+      const client = await getSb(sb.url, sb.key);
+      const fingerprint = (contract.documents || []).map((d) => `${d.id}:${String(d.text || "").length}`).sort().join("|");
+      const idem = `${kind}:${contract.id}:${await sha256Short(fingerprint)}`;
+      const { data, error } = await client.rpc("enqueue_job", {
+        p_account_id: accountId,
+        p_contract_id: contract.id,
+        p_kind: kind || "analysis",
+        p_payload: { prompt: buildAnalysisPrompt(contract, playbook, policyPacks), max_tokens: 3e3 },
+        p_idempotency: idem
+      });
+      if (error) throw new Error(error.message);
+      return data;
+    };
     const doLogin = async () => {
       if (!acceptedTerms) {
         setLoginErr("Please accept the Terms of Use, Privacy Policy and DPA to continue.");
@@ -1497,6 +2035,99 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
     useEffect(() => {
       configureAI(sb.url, sb.key);
     }, [sb.url, sb.key]);
+    function applySession(s) {
+      var _a2;
+      setSession(s);
+      const u = s.user, meta = u.user_metadata || {};
+      setCurrentUser({
+        id: u.id,
+        username: u.email,
+        displayName: meta.full_name || meta.name || String(u.email || "").split("@")[0],
+        role: "Admin",
+        email: u.email,
+        verified: !!u.email_confirmed_at,
+        provider: ((_a2 = u.app_metadata) == null ? void 0 : _a2.provider) || "email"
+      });
+    }
+    useEffect(() => {
+      let sub = null, cancelled = false;
+      (async () => {
+        var _a2;
+        if (!sb.url || !sb.key) return;
+        try {
+          const client = await getSb(sb.url, sb.key);
+          const { data } = await client.auth.getSession();
+          if (cancelled) return;
+          if (data == null ? void 0 : data.session) applySession(data.session);
+          const r = client.auth.onAuthStateChange((event, s) => {
+            if (event === "SIGNED_OUT") {
+              setSession(null);
+              setCurrentUser(null);
+              return;
+            }
+            if (s) {
+              applySession(s);
+              if (window.location.hash.includes("access_token")) {
+                window.history.replaceState({}, "", authRedirectUrl());
+              }
+            }
+          });
+          sub = (_a2 = r == null ? void 0 : r.data) == null ? void 0 : _a2.subscription;
+        } catch (e) {
+          console.error("auth init failed", e);
+        }
+      })();
+      return () => {
+        var _a2;
+        cancelled = true;
+        (_a2 = sub == null ? void 0 : sub.unsubscribe) == null ? void 0 : _a2.call(sub);
+      };
+    }, [sb.url, sb.key]);
+    useEffect(() => {
+      if (!session || !sb.url) return;
+      (async () => {
+        try {
+          const client = await getSb(sb.url, sb.key);
+          const { data } = await client.from("account_members").select("account_id").eq("user_id", session.user.id).limit(1).single();
+          if (data == null ? void 0 : data.account_id) setAccountId(data.account_id);
+        } catch (e) {
+        }
+      })();
+    }, [session, sb.url, sb.key]);
+    useEffect(() => {
+      if (resendIn <= 0) return;
+      const t = setTimeout(() => setResendIn((n) => n - 1), 1e3);
+      return () => clearTimeout(t);
+    }, [resendIn]);
+    useEffect(() => {
+      if (!session || !sb.url || !sb.key || !asyncMode) return;
+      let stop = false, prev = [];
+      const tick = async () => {
+        try {
+          const client = await getSb(sb.url, sb.key);
+          const { data } = await client.from("my_jobs").select("*").in("status", ["queued", "running", "dead"]).order("enqueued_at", { ascending: false });
+          if (stop) return;
+          const rows = data || [];
+          const done = prev.filter((j) => j.status === "running" && !rows.find((r) => r.id === j.id));
+          for (const j of done) {
+            const { data: c } = await client.from("contracts").select("id, analysis").eq("id", j.contract_id).maybeSingle();
+            if (c == null ? void 0 : c.analysis) {
+              update(j.contract_id, { analysis: c.analysis });
+              notify(`Analysis complete \u2014 ${j.ref || j.contract_id}`);
+            }
+          }
+          prev = rows;
+          setActiveJobs(rows);
+        } catch (e) {
+        }
+      };
+      tick();
+      const iv = setInterval(tick, 4e3);
+      return () => {
+        stop = true;
+        clearInterval(iv);
+      };
+    }, [session, sb.url, sb.key, asyncMode]);
     useEffect(() => {
       const onKey = (e) => {
         var _a2, _b2;
@@ -1516,16 +2147,476 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
       return () => window.removeEventListener("keydown", onKey);
     }, [search, consentPrompt, showSettings, cedricOpen]);
     if (!currentUser) {
-      return /* @__PURE__ */ React.createElement("div", { className: "ciq" }, /* @__PURE__ */ React.createElement("style", null, CSS), /* @__PURE__ */ React.createElement("div", { className: "login-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "login" }, /* @__PURE__ */ React.createElement("h1", null, "Contract", /* @__PURE__ */ React.createElement("span", null, "IQ"), " App"), /* @__PURE__ */ React.createElement("div", { className: "tag" }, ED.name, " \xB7 Sign in to your workspace"), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Username"), /* @__PURE__ */ React.createElement("input", { value: login.username, onChange: (e) => setLogin((p) => ({ ...p, username: e.target.value })), onKeyDown: (e) => e.key === "Enter" && doLogin(), placeholder: "username", autoFocus: true })), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Password"), /* @__PURE__ */ React.createElement("input", { type: "password", value: login.password, onChange: (e) => setLogin((p) => ({ ...p, password: e.target.value })), onKeyDown: (e) => e.key === "Enter" && doLogin(), placeholder: "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" })), loginErr && /* @__PURE__ */ React.createElement("p", { style: { color: "#c0271d", fontSize: 13, marginBottom: 10 } }, loginErr), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 9, alignItems: "flex-start", margin: "6px 0 16px", fontSize: 12, color: "#3D4F66", lineHeight: 1.5, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: acceptedTerms, onChange: (e) => setAcceptedTerms(e.target.checked), style: { marginTop: 2, width: 15, height: 15, accentColor: "#2F7BD9", flexShrink: 0 } }), /* @__PURE__ */ React.createElement("span", null, "I accept the ", /* @__PURE__ */ React.createElement("a", { onClick: (e) => {
-        e.preventDefault();
-        setLegalView("terms");
-      }, href: "#", style: { color: "#2F7BD9", fontWeight: 600 } }, "Terms of Use"), ", ", /* @__PURE__ */ React.createElement("a", { onClick: (e) => {
-        e.preventDefault();
-        setLegalView("privacy");
-      }, href: "#", style: { color: "#2F7BD9", fontWeight: 600 } }, "Privacy Policy"), " and ", /* @__PURE__ */ React.createElement("a", { onClick: (e) => {
-        e.preventDefault();
-        setLegalView("dpa");
-      }, href: "#", style: { color: "#2F7BD9", fontWeight: 600 } }, "DPA"), ", and I understand ContractIQ is an automated screening aid, not legal advice.")), /* @__PURE__ */ React.createElement("button", { className: "btn", style: { width: "100%", padding: "12px", opacity: acceptedTerms ? 1 : 0.55 }, onClick: doLogin }, "Sign in"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11.5, color: "#86868b", textAlign: "center", marginTop: 14, lineHeight: 1.5 } }, "ContractIQ uses no cookies or trackers; credentials are never stored or transmitted in plain text."), legalView && /* @__PURE__ */ React.createElement(LegalModal, { view: legalView, onClose: () => setLegalView(null) }))));
+      const supaReady = !!(sb.url && sb.key);
+      const pw = passwordStrength(authForm.password);
+      const mail = mailProviderLink(pendingEmail);
+      const set = (k) => (e) => setAuthForm((f) => ({ ...f, [k]: e.target.value }));
+      const Msg = () => !authMsg ? null : /* @__PURE__ */ React.createElement("div", { style: {
+        background: authMsg.kind === "err" ? "#FDEEEC" : authMsg.kind === "warn" ? "#FDF6E8" : "#EFF8F3",
+        border: "1px solid " + (authMsg.kind === "err" ? "#F0C4BF" : authMsg.kind === "warn" ? "#EBD9AE" : "#BFE3D0"),
+        color: authMsg.kind === "err" ? "#B23A31" : authMsg.kind === "warn" ? "#8A5A0E" : "#1F7A52",
+        borderRadius: 7,
+        padding: "10px 13px",
+        fontSize: 12.5,
+        lineHeight: 1.55,
+        margin: "0 0 14px"
+      } }, authMsg.text);
+      const OAuthRow = () => /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, margin: "18px 0 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: "#E1EAF6" } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: "#8FA3BC", fontWeight: 700 } }, "OR"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: "#E1EAF6" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 9 } }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          className: "btn ghost",
+          style: {
+            flex: 1,
+            padding: "10px 8px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            fontSize: 13
+          },
+          disabled: authBusy,
+          onClick: () => doOAuth("google")
+        },
+        /* @__PURE__ */ React.createElement("svg", { width: "16", height: "16", viewBox: "0 0 48 48", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { fill: "#4285F4", d: "M45 24c0-1.6-.1-2.7-.4-4H24v7.5h12c-.2 2-1.5 5-4.4 7l6.7 5.2C42.2 36 45 30.6 45 24z" }), /* @__PURE__ */ React.createElement("path", { fill: "#34A853", d: "M24 46c5.9 0 10.9-2 14.5-5.3l-6.9-5.4c-1.9 1.3-4.4 2.2-7.6 2.2-5.8 0-10.7-3.8-12.5-9.1l-7.1 5.5C8 41.1 15.4 46 24 46z" }), /* @__PURE__ */ React.createElement("path", { fill: "#FBBC05", d: "M11.5 28.4c-.5-1.4-.7-2.9-.7-4.4s.3-3 .7-4.4l-7.1-5.5C2.9 17 2 20.4 2 24s.9 7 2.4 9.9l7.1-5.5z" }), /* @__PURE__ */ React.createElement("path", { fill: "#EA4335", d: "M24 10.6c3.2 0 5.4 1.4 6.7 2.6l5.9-5.8C33 4 29.9 2 24 2 15.4 2 8 6.9 4.4 14.1l7.1 5.5C13.3 14.4 18.2 10.6 24 10.6z" })),
+        "Google"
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          className: "btn ghost",
+          style: {
+            flex: 1,
+            padding: "10px 8px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            fontSize: 13
+          },
+          disabled: authBusy,
+          onClick: () => doOAuth("azure")
+        },
+        /* @__PURE__ */ React.createElement("svg", { width: "15", height: "15", viewBox: "0 0 23 23", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { fill: "#F25022", d: "M1 1h10v10H1z" }), /* @__PURE__ */ React.createElement("path", { fill: "#7FBA00", d: "M12 1h10v10H12z" }), /* @__PURE__ */ React.createElement("path", { fill: "#00A4EF", d: "M1 12h10v10H1z" }), /* @__PURE__ */ React.createElement("path", { fill: "#FFB900", d: "M12 12h10v10H12z" })),
+        "Microsoft"
+      )));
+      if (authView === "verify") {
+        return /* @__PURE__ */ React.createElement("div", { className: "ciq" }, /* @__PURE__ */ React.createElement("style", null, CSS), /* @__PURE__ */ React.createElement("div", { className: "login-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "login", style: { maxWidth: 440 } }, /* @__PURE__ */ React.createElement("div", { style: {
+          width: 62,
+          height: 70,
+          margin: "0 auto 18px",
+          background: "linear-gradient(160deg,#2F7BD9,#5FA8F5)",
+          clipPath: "polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center"
+        } }, /* @__PURE__ */ React.createElement(
+          "svg",
+          {
+            width: "30",
+            height: "30",
+            viewBox: "0 0 24 24",
+            fill: "none",
+            stroke: "#fff",
+            strokeWidth: "2",
+            strokeLinecap: "round",
+            strokeLinejoin: "round"
+          },
+          /* @__PURE__ */ React.createElement("rect", { x: "2", y: "4", width: "20", height: "16", rx: "2" }),
+          /* @__PURE__ */ React.createElement("path", { d: "m2 7 10 6 10-6" })
+        )), /* @__PURE__ */ React.createElement("h1", { style: { fontSize: 25 } }, "Check your email"), /* @__PURE__ */ React.createElement("div", { className: "tag", style: { marginBottom: 18 } }, "We\u2019ve sent a verification link to"), /* @__PURE__ */ React.createElement("div", { style: {
+          background: "#F5F9FE",
+          border: "1px solid #C8DCF5",
+          borderRadius: 7,
+          padding: "11px 14px",
+          fontSize: 14.5,
+          fontWeight: 700,
+          color: "#0B1D33",
+          wordBreak: "break-all",
+          marginBottom: 18
+        } }, pendingEmail), /* @__PURE__ */ React.createElement(Msg, null), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "#56718A", lineHeight: 1.65, marginBottom: 18 } }, "Click the link in that email to activate your account. The link is valid for 24 hours."), mail && /* @__PURE__ */ React.createElement(
+          "a",
+          {
+            className: "btn",
+            href: mail.url,
+            target: "_blank",
+            rel: "noopener noreferrer",
+            style: {
+              display: "block",
+              textAlign: "center",
+              padding: "11px",
+              marginBottom: 10,
+              textDecoration: "none"
+            }
+          },
+          mail.name
+        ), /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            className: "btn ghost",
+            style: { width: "100%", padding: "11px", marginBottom: 18 },
+            disabled: authBusy,
+            onClick: doCheckVerified
+          },
+          authBusy ? "Checking\u2026" : "I've verified my email"
+        ), /* @__PURE__ */ React.createElement("div", { style: { borderTop: "1px solid #E1EAF6", paddingTop: 16, textAlign: "left" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "#56718A", lineHeight: 1.7 } }, /* @__PURE__ */ React.createElement("b", { style: { color: "#16283E" } }, "Didn\u2019t get it?"), /* @__PURE__ */ React.createElement("br", null), "Check your spam or junk folder first \u2014 verification emails often land there.", " ", resendIn > 0 ? /* @__PURE__ */ React.createElement("span", { style: { color: "#8FA3BC" } }, "You can send it again in ", resendIn, "s.") : /* @__PURE__ */ React.createElement(
+          "a",
+          {
+            href: "#",
+            onClick: (e) => {
+              e.preventDefault();
+              doResendVerification();
+            },
+            style: { color: "#2F7BD9", fontWeight: 700 }
+          },
+          "Send it again"
+        )), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "#56718A", lineHeight: 1.7, marginTop: 10 } }, /* @__PURE__ */ React.createElement("b", { style: { color: "#16283E" } }, "Wrong address?"), " ", /* @__PURE__ */ React.createElement(
+          "a",
+          {
+            href: "#",
+            onClick: (e) => {
+              e.preventDefault();
+              setAuthView("signup");
+              setAuthMsg(null);
+            },
+            style: { color: "#2F7BD9", fontWeight: 700 }
+          },
+          "Use a different email"
+        )), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "#56718A", lineHeight: 1.7, marginTop: 10 } }, /* @__PURE__ */ React.createElement("b", { style: { color: "#16283E" } }, "On a work address?"), " ", "Some corporate filters hold new-sender mail for a few minutes. If nothing arrives in ten, ask IT to allow mail from your Supabase sending domain.")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: "#8FA3BC", marginTop: 20 } }, /* @__PURE__ */ React.createElement(
+          "a",
+          {
+            href: "#",
+            onClick: (e) => {
+              e.preventDefault();
+              setAuthView("signin");
+              setAuthMsg(null);
+            },
+            style: { color: "#2F7BD9", fontWeight: 700 }
+          },
+          "Back to sign in"
+        )))));
+      }
+      if (authView === "forgot") {
+        return /* @__PURE__ */ React.createElement("div", { className: "ciq" }, /* @__PURE__ */ React.createElement("style", null, CSS), /* @__PURE__ */ React.createElement("div", { className: "login-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "login" }, /* @__PURE__ */ React.createElement("h1", null, "Reset your password"), /* @__PURE__ */ React.createElement("div", { className: "tag", style: { marginBottom: 18 } }, "We\u2019ll email you a link to set a new one."), /* @__PURE__ */ React.createElement(Msg, null), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Work email"), /* @__PURE__ */ React.createElement(
+          "input",
+          {
+            type: "email",
+            value: authForm.email,
+            onChange: set("email"),
+            placeholder: "you@company.com",
+            autoComplete: "email",
+            onKeyDown: (e) => e.key === "Enter" && doForgotPassword()
+          }
+        )), /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            className: "btn",
+            style: { width: "100%", padding: "12px" },
+            disabled: authBusy,
+            onClick: doForgotPassword
+          },
+          authBusy ? "Sending\u2026" : "Send reset link"
+        ), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12.5, color: "#86868b", marginTop: 16 } }, /* @__PURE__ */ React.createElement(
+          "a",
+          {
+            href: "#",
+            onClick: (e) => {
+              e.preventDefault();
+              setAuthView("signin");
+              setAuthMsg(null);
+            },
+            style: { color: "#2F7BD9", fontWeight: 700 }
+          },
+          "Back to sign in"
+        )))));
+      }
+      if (authView === "signup") {
+        return /* @__PURE__ */ React.createElement("div", { className: "ciq" }, /* @__PURE__ */ React.createElement("style", null, CSS), /* @__PURE__ */ React.createElement("div", { className: "login-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "login", style: { maxWidth: 430 } }, /* @__PURE__ */ React.createElement("h1", null, "Contract", /* @__PURE__ */ React.createElement("span", null, "IQ"), " App"), /* @__PURE__ */ React.createElement("div", { className: "tag", style: { marginBottom: 20 } }, "Create your workspace \u2014 free, no card required"), /* @__PURE__ */ React.createElement(Msg, null), !supaReady && /* @__PURE__ */ React.createElement("div", { style: {
+          background: "#FDF6E8",
+          border: "1px solid #EBD9AE",
+          color: "#8A5A0E",
+          borderRadius: 7,
+          padding: "10px 13px",
+          fontSize: 12.5,
+          lineHeight: 1.55,
+          marginBottom: 14
+        } }, "Supabase is not connected yet, so accounts cannot be created. Use the demo sign-in below, or add your project details in Settings."), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Full name"), /* @__PURE__ */ React.createElement(
+          "input",
+          {
+            value: authForm.fullName,
+            onChange: set("fullName"),
+            placeholder: "Rahul Sharma",
+            autoComplete: "name"
+          }
+        )), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Company ", /* @__PURE__ */ React.createElement("span", { style: { color: "#8FA3BC", fontWeight: 400 } }, "(optional)")), /* @__PURE__ */ React.createElement(
+          "input",
+          {
+            value: authForm.company,
+            onChange: set("company"),
+            placeholder: "Meridian Utilities",
+            autoComplete: "organization"
+          }
+        )), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Work email"), /* @__PURE__ */ React.createElement(
+          "input",
+          {
+            type: "email",
+            value: authForm.email,
+            onChange: set("email"),
+            placeholder: "you@company.com",
+            autoComplete: "email"
+          }
+        )), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Password"), /* @__PURE__ */ React.createElement(
+          "input",
+          {
+            type: "password",
+            value: authForm.password,
+            onChange: set("password"),
+            placeholder: "At least 8 characters",
+            autoComplete: "new-password",
+            onKeyDown: (e) => e.key === "Enter" && doSignUp()
+          }
+        )), authForm.password && /* @__PURE__ */ React.createElement("div", { style: { marginTop: -6, marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { height: 4, background: "#EEF3FA", borderRadius: 2, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: {
+          height: "100%",
+          width: `${pw.score / 5 * 100}%`,
+          background: pw.colour,
+          transition: "width .25s"
+        } })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: pw.colour, fontWeight: 700, marginTop: 5 } }, pw.label)), /* @__PURE__ */ React.createElement("label", { style: {
+          display: "flex",
+          gap: 9,
+          alignItems: "flex-start",
+          margin: "6px 0 16px",
+          fontSize: 12,
+          color: "#3D4F66",
+          lineHeight: 1.5,
+          cursor: "pointer"
+        } }, /* @__PURE__ */ React.createElement(
+          "input",
+          {
+            type: "checkbox",
+            checked: acceptedTerms,
+            onChange: (e) => setAcceptedTerms(e.target.checked),
+            style: { marginTop: 2, width: 15, height: 15, accentColor: "#2F7BD9", flexShrink: 0 }
+          }
+        ), /* @__PURE__ */ React.createElement("span", null, "I accept the ", /* @__PURE__ */ React.createElement(
+          "a",
+          {
+            onClick: (e) => {
+              e.preventDefault();
+              setLegalView("terms");
+            },
+            href: "#",
+            style: { color: "#2F7BD9", fontWeight: 600 }
+          },
+          "Terms of Use"
+        ), ", ", /* @__PURE__ */ React.createElement(
+          "a",
+          {
+            onClick: (e) => {
+              e.preventDefault();
+              setLegalView("privacy");
+            },
+            href: "#",
+            style: { color: "#2F7BD9", fontWeight: 600 }
+          },
+          "Privacy Policy"
+        ), " and ", /* @__PURE__ */ React.createElement(
+          "a",
+          {
+            onClick: (e) => {
+              e.preventDefault();
+              setLegalView("dpa");
+            },
+            href: "#",
+            style: { color: "#2F7BD9", fontWeight: 600 }
+          },
+          "DPA"
+        ), ", and I understand ContractIQ is an automated screening aid, not legal advice.")), /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            className: "btn",
+            style: {
+              width: "100%",
+              padding: "12px",
+              opacity: acceptedTerms && supaReady ? 1 : 0.55
+            },
+            disabled: authBusy || !supaReady,
+            onClick: doSignUp
+          },
+          authBusy ? "Creating your workspace\u2026" : "Create account"
+        ), supaReady && /* @__PURE__ */ React.createElement(OAuthRow, null), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12.5, color: "#86868b", marginTop: 18 } }, "Already have an account?", " ", /* @__PURE__ */ React.createElement(
+          "a",
+          {
+            href: "#",
+            onClick: (e) => {
+              e.preventDefault();
+              setAuthView("signin");
+              setAuthMsg(null);
+            },
+            style: { color: "#2F7BD9", fontWeight: 700 }
+          },
+          "Sign in"
+        )), legalView && /* @__PURE__ */ React.createElement(LegalModal, { view: legalView, onClose: () => setLegalView(null) }))));
+      }
+      return /* @__PURE__ */ React.createElement("div", { className: "ciq" }, /* @__PURE__ */ React.createElement("style", null, CSS), /* @__PURE__ */ React.createElement("div", { className: "login-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "login" }, /* @__PURE__ */ React.createElement("h1", null, "Contract", /* @__PURE__ */ React.createElement("span", null, "IQ"), " App"), /* @__PURE__ */ React.createElement("div", { className: "tag", style: { marginBottom: 20 } }, ED.name, " \xB7 Sign in to your workspace"), /* @__PURE__ */ React.createElement(Msg, null), supaReady && !useDemoAuth ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Work email"), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "email",
+          value: authForm.email,
+          onChange: set("email"),
+          placeholder: "you@company.com",
+          autoComplete: "email"
+        }
+      )), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Password"), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "password",
+          value: authForm.password,
+          onChange: set("password"),
+          placeholder: "Your password",
+          autoComplete: "current-password",
+          onKeyDown: (e) => e.key === "Enter" && doSignIn()
+        }
+      )), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", marginTop: -8, marginBottom: 14 } }, /* @__PURE__ */ React.createElement(
+        "a",
+        {
+          href: "#",
+          onClick: (e) => {
+            e.preventDefault();
+            setAuthView("forgot");
+            setAuthMsg(null);
+          },
+          style: { fontSize: 12, color: "#2F7BD9", fontWeight: 600 }
+        },
+        "Forgot your password?"
+      )), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          className: "btn",
+          style: { width: "100%", padding: "12px" },
+          disabled: authBusy,
+          onClick: doSignIn
+        },
+        authBusy ? "Signing in\u2026" : "Sign in"
+      ), /* @__PURE__ */ React.createElement(OAuthRow, null), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12.5, color: "#86868b", marginTop: 18 } }, "New here?", " ", /* @__PURE__ */ React.createElement(
+        "a",
+        {
+          href: "#",
+          onClick: (e) => {
+            e.preventDefault();
+            setAuthView("signup");
+            setAuthMsg(null);
+          },
+          style: { color: "#2F7BD9", fontWeight: 700 }
+        },
+        "Create an account"
+      ))) : /* @__PURE__ */ React.createElement(React.Fragment, null, !supaReady && /* @__PURE__ */ React.createElement("div", { style: {
+        background: "#F5F9FE",
+        border: "1px solid #C8DCF5",
+        color: "#3D4F66",
+        borderRadius: 7,
+        padding: "10px 13px",
+        fontSize: 12.5,
+        lineHeight: 1.55,
+        marginBottom: 16
+      } }, "Real accounts need Supabase. Add your project URL and anon key in Settings after signing in with the demo account below."), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Username"), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          value: login.username,
+          onChange: (e) => setLogin((p) => ({ ...p, username: e.target.value })),
+          placeholder: "username",
+          autoComplete: "username"
+        }
+      )), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Password"), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "password",
+          value: login.password,
+          onChange: (e) => setLogin((p) => ({ ...p, password: e.target.value })),
+          placeholder: "password",
+          autoComplete: "current-password",
+          onKeyDown: (e) => e.key === "Enter" && doLogin()
+        }
+      )), loginErr && /* @__PURE__ */ React.createElement("div", { style: { color: "#B23A31", fontSize: 12.5, marginBottom: 12 } }, loginErr), /* @__PURE__ */ React.createElement("label", { style: {
+        display: "flex",
+        gap: 9,
+        alignItems: "flex-start",
+        margin: "6px 0 16px",
+        fontSize: 12,
+        color: "#3D4F66",
+        lineHeight: 1.5,
+        cursor: "pointer"
+      } }, /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "checkbox",
+          checked: acceptedTerms,
+          onChange: (e) => setAcceptedTerms(e.target.checked),
+          style: { marginTop: 2, width: 15, height: 15, accentColor: "#2F7BD9", flexShrink: 0 }
+        }
+      ), /* @__PURE__ */ React.createElement("span", null, "I accept the ", /* @__PURE__ */ React.createElement(
+        "a",
+        {
+          onClick: (e) => {
+            e.preventDefault();
+            setLegalView("terms");
+          },
+          href: "#",
+          style: { color: "#2F7BD9", fontWeight: 600 }
+        },
+        "Terms of Use"
+      ), ", ", /* @__PURE__ */ React.createElement(
+        "a",
+        {
+          onClick: (e) => {
+            e.preventDefault();
+            setLegalView("privacy");
+          },
+          href: "#",
+          style: { color: "#2F7BD9", fontWeight: 600 }
+        },
+        "Privacy Policy"
+      ), " and ", /* @__PURE__ */ React.createElement(
+        "a",
+        {
+          onClick: (e) => {
+            e.preventDefault();
+            setLegalView("dpa");
+          },
+          href: "#",
+          style: { color: "#2F7BD9", fontWeight: 600 }
+        },
+        "DPA"
+      ), ", and I understand ContractIQ is an automated screening aid, not legal advice.")), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          className: "btn",
+          style: { width: "100%", padding: "12px", opacity: acceptedTerms ? 1 : 0.55 },
+          onClick: doLogin
+        },
+        "Sign in"
+      ), supaReady && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12.5, color: "#86868b", marginTop: 16 } }, /* @__PURE__ */ React.createElement(
+        "a",
+        {
+          href: "#",
+          onClick: (e) => {
+            e.preventDefault();
+            setUseDemoAuth(false);
+            setLoginErr(null);
+          },
+          style: { color: "#2F7BD9", fontWeight: 700 }
+        },
+        "Use a real account instead"
+      ))), supaReady && !useDemoAuth && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11.5, color: "#A8B6C8", marginTop: 14 } }, /* @__PURE__ */ React.createElement(
+        "a",
+        {
+          href: "#",
+          onClick: (e) => {
+            e.preventDefault();
+            setUseDemoAuth(true);
+            setAuthMsg(null);
+          },
+          style: { color: "#A8B6C8" }
+        },
+        "Use the demo account"
+      )), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11.5, color: "#86868b", textAlign: "center", marginTop: 14, lineHeight: 1.5 } }, "ContractIQ uses no advertising cookies or trackers."), legalView && /* @__PURE__ */ React.createElement(LegalModal, { view: legalView, onClose: () => setLegalView(null) }))));
     }
     const CONSENT_VERSION = "2026.1";
     const onFiles = async (files) => {
@@ -1749,6 +2840,19 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
       if (!revision && creditsLeft < CREDIT_COST.analysis) {
         return notify(`Not enough credits \u2014 an analysis costs ${CREDIT_COST.analysis}. You have ${creditsLeft} left ${ED.windowLabel}. Top up or upgrade to continue.`);
       }
+      if (canQueue()) {
+        setAnalyzing(true);
+        try {
+          const job = await enqueueAnalysis(selected, revision ? "reanalysis" : "analysis");
+          setAnalyzing(false);
+          notify((job == null ? void 0 : job.status) === "succeeded" ? "That analysis has already been run \u2014 showing the existing result." : "Queued. You can close this tab; the analysis will finish without you.");
+          return;
+        } catch (e) {
+          console.error(e);
+          setAnalyzing(false);
+          notify(`Could not queue (${String(e.message).slice(0, 60)}) \u2014 running it here instead.`);
+        }
+      }
       setAnalyzing(true);
       const t0 = Date.now();
       try {
@@ -1834,6 +2938,36 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
       setTab("Documents");
       notify("Contract Record created \u2014 now ingest its documents");
     };
+    const runAction = (action) => {
+      if (!selected) {
+        notify("Open a contract first \u2014 Cedric answers from that contract's documents.");
+        setPage("portfolio");
+        return;
+      }
+      setPage("portfolio");
+      setCedricOpen(true);
+      sendCedric(action.prompt);
+    };
+    const copyAction = async (action) => {
+      try {
+        await navigator.clipboard.writeText(action.prompt);
+      } catch (e) {
+        const ta = document.createElement("textarea");
+        ta.value = action.prompt;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand("copy");
+        } catch (e2) {
+          notify("Could not copy \u2014 select the text manually.");
+        }
+        document.body.removeChild(ta);
+      }
+      setCopiedAction(action.id);
+      setTimeout(() => setCopiedAction((c) => c === action.id ? null : c), 1800);
+    };
     const sendCedric = async (q) => {
       const question = (q || cedricInput).trim();
       if (!question || cedricBusy) return;
@@ -1895,10 +3029,15 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
     } }, "Contract", /* @__PURE__ */ React.createElement("span", null, "IQ"), "\xA0App", /* @__PURE__ */ React.createElement("span", { className: "pill blue", style: { marginTop: 0, marginLeft: 10 } }, ED.short), DEMO_MODE && /* @__PURE__ */ React.createElement("span", { className: "pill blue", style: { marginTop: 0, marginLeft: 6 } }, "Demo \u2014 AI off")), /* @__PURE__ */ React.createElement("div", { className: "nav-links" }, /* @__PURE__ */ React.createElement("div", { style: page === "portfolio" ? { color: "#0071e3", fontWeight: 600 } : {}, onClick: () => {
       setPage("portfolio");
       setSelectedId(null);
-    } }, "Portfolio"), /* @__PURE__ */ React.createElement("div", { style: page === "suppliers" ? { color: "#0071e3", fontWeight: 600 } : {}, onClick: () => {
+    } }, "Portfolio"), /* @__PURE__ */ React.createElement("div", { style: page === "actions" ? { color: "#0071e3", fontWeight: 600 } : {}, onClick: () => {
+      setPage("actions");
+    } }, "Ask Cedric actions"), /* @__PURE__ */ React.createElement("div", { style: page === "suppliers" ? { color: "#0071e3", fontWeight: 600 } : {}, onClick: () => {
       setPage("suppliers");
       setSelectedId(null);
-    } }, "Suppliers"), /* @__PURE__ */ React.createElement("div", { style: page === "obligations" ? { color: "#0071e3", fontWeight: 600 } : {}, onClick: () => {
+    } }, "Suppliers"), /* @__PURE__ */ React.createElement("div", { style: page === "vendorrisk" ? { color: "#0071e3", fontWeight: 600 } : {}, onClick: () => {
+      setPage("vendorrisk");
+      setSelectedId(null);
+    } }, "Vendor risk"), /* @__PURE__ */ React.createElement("div", { style: page === "obligations" ? { color: "#0071e3", fontWeight: 600 } : {}, onClick: () => {
       setPage("obligations");
       setSelectedId(null);
     } }, "Obligations"), /* @__PURE__ */ React.createElement("div", { style: page === "clauses" ? { color: "#0071e3", fontWeight: 600 } : {}, onClick: () => {
@@ -1916,11 +3055,7 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
     } }, "Pricing"), /* @__PURE__ */ React.createElement("div", { className: "pub", style: page === "trust" ? { color: "#0071e3", fontWeight: 600 } : {}, onClick: () => {
       setPage("trust");
       setSelectedId(null);
-    } }, "Data Integrity"), /* @__PURE__ */ React.createElement("div", { onClick: () => setShowSettings(true) }, "Settings"), /* @__PURE__ */ React.createElement("span", { className: "user-chip" }, currentUser.displayName, " \xB7 ", currentUser.role), /* @__PURE__ */ React.createElement("div", { onClick: () => {
-      setCurrentUser(null);
-      setCedricMsgs([]);
-      setCedricOpen(false);
-    } }, "Sign out"), /* @__PURE__ */ React.createElement(
+    } }, "Data Integrity"), /* @__PURE__ */ React.createElement("div", { onClick: () => setShowSettings(true) }, "Settings"), /* @__PURE__ */ React.createElement("span", { className: "user-chip" }, currentUser.displayName, " \xB7 ", currentUser.role), /* @__PURE__ */ React.createElement("div", { onClick: doSignOut }, "Sign out"), /* @__PURE__ */ React.createElement(
       "input",
       {
         ref: searchRef,
@@ -1955,7 +3090,83 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
         border: current ? "2px solid #2F7BD9" : void 0,
         boxShadow: current ? "0 18px 44px rgba(47,123,217,0.16)" : void 0
       } }, /* @__PURE__ */ React.createElement("div", { className: "cat" }, e.name), /* @__PURE__ */ React.createElement("h3", { style: { fontSize: 30, margin: "10px 0 2px" } }, e.price), /* @__PURE__ */ React.createElement("div", { className: "sup" }, k === "sandbox" ? "Permanently free \xB7 no card required" : k === "growth" ? "Most popular \xB7 cancel any time" : k === "scale" ? "For heavier contract estates" : "Tailored corporate pricing \xB7 invoiced annually"), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16, fontSize: 14, lineHeight: 1.8, color: "#3D4F66" } }, e.features.map((f, n) => /* @__PURE__ */ React.createElement("div", { key: n }, f))), current ? /* @__PURE__ */ React.createElement("span", { className: "pill ok" }, "Your edition") : k === "growth" ? /* @__PURE__ */ React.createElement("span", { className: "pill blue" }, "Most popular") : null);
-    })), /* @__PURE__ */ React.createElement("p", { style: { textAlign: "center", fontSize: 13, color: "#62748B", marginTop: 22 } }, "You are running the ", /* @__PURE__ */ React.createElement("b", null, ED.name), " edition of the ContractIQ App. Editions are separate builds \u2014 upgrading installs the edition you have licensed."))) : page === "suppliers" ? (() => {
+    })), /* @__PURE__ */ React.createElement("p", { style: { textAlign: "center", fontSize: 13, color: "#62748B", marginTop: 22 } }, "You are running the ", /* @__PURE__ */ React.createElement("b", null, ED.name), " edition of the ContractIQ App. Editions are separate builds \u2014 upgrading installs the edition you have licensed."))) : page === "actions" ? (() => {
+      const q = actionSearch.trim().toLowerCase();
+      const shown = CEDRIC_ACTIONS.filter((a) => (actionCat === "All" || a.cat === actionCat) && (!q || a.title.toLowerCase().includes(q) || a.what.toLowerCase().includes(q) || a.prompt.toLowerCase().includes(q)));
+      return /* @__PURE__ */ React.createElement("div", { className: "container" }, /* @__PURE__ */ React.createElement("h1", { style: { fontSize: 30, fontWeight: 700, marginBottom: 6 } }, "Ask Cedric actions"), /* @__PURE__ */ React.createElement("p", { style: { color: "#56718A", marginBottom: 20, maxWidth: 780 } }, "Ready-made questions that give the same answer every time you ask them. Click one to run it against the contract you have open, or copy it to use anywhere else."), !selected && /* @__PURE__ */ React.createElement("div", { style: {
+        background: "#FDF6E8",
+        border: "1px solid #EBD9AE",
+        color: "#8A5A0E",
+        borderRadius: 7,
+        padding: "11px 14px",
+        fontSize: 12.5,
+        lineHeight: 1.55,
+        marginBottom: 18
+      } }, "No contract is open. Cedric answers only from the documents on a contract, so open one first \u2014 or copy a question to use elsewhere."), selected && /* @__PURE__ */ React.createElement("div", { style: {
+        background: "#F5F9FE",
+        border: "1px solid #C8DCF5",
+        borderRadius: 7,
+        padding: "10px 14px",
+        fontSize: 12.5,
+        marginBottom: 18
+      } }, "Questions will run against ", /* @__PURE__ */ React.createElement("b", null, selected.ref, " \xB7 ", selected.supplier), "."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 18 } }, /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          value: actionSearch,
+          onChange: (e) => setActionSearch(e.target.value),
+          placeholder: "Search actions\u2026",
+          style: {
+            border: "1.5px solid #D6E3F5",
+            borderRadius: 7,
+            padding: "8px 13px",
+            fontSize: 13,
+            fontFamily: "inherit",
+            fontWeight: 600,
+            minWidth: 210
+          }
+        }
+      ), ["All", ...CEDRIC_CATEGORIES].map((c) => /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          key: c,
+          onClick: () => setActionCat(c),
+          style: {
+            border: "1.5px solid " + (actionCat === c ? "#2F7BD9" : "#D6E3F5"),
+            background: actionCat === c ? "#2F7BD9" : "#fff",
+            color: actionCat === c ? "#fff" : "#56718A",
+            borderRadius: 100,
+            padding: "7px 14px",
+            fontSize: 12.5,
+            fontWeight: 700,
+            fontFamily: "inherit",
+            cursor: "pointer"
+          }
+        },
+        c
+      ))), shown.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "Nothing matches"), /* @__PURE__ */ React.createElement("p", null, "Try a different word, or clear the filter.")) : /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(330px, 1fr))", gap: 14 } }, shown.map((a) => /* @__PURE__ */ React.createElement("div", { key: a.id, style: {
+        border: "1px solid #E1EAF6",
+        borderRadius: 9,
+        padding: "16px 18px",
+        background: "#fff",
+        display: "flex",
+        flexDirection: "column"
+      } }, /* @__PURE__ */ React.createElement("div", { style: {
+        fontSize: 10.5,
+        fontWeight: 700,
+        color: "#8FA3BC",
+        textTransform: "uppercase",
+        letterSpacing: "0.06em",
+        marginBottom: 6
+      } }, a.cat), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 15, fontWeight: 700, color: "#0B1D33", marginBottom: 6 } }, a.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "#56718A", lineHeight: 1.55, marginBottom: 12, flex: 1 } }, a.what), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "btn sm", style: { flex: 1 }, onClick: () => runAction(a) }, "Ask Cedric"), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          className: "btn ghost sm",
+          onClick: () => copyAction(a),
+          style: copiedAction === a.id ? { color: "#2E9E6B", borderColor: "#2E9E6B" } : void 0
+        },
+        copiedAction === a.id ? "Copied" : "Copy"
+      ))))), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11.5, color: "#8FA3BC", marginTop: 22, lineHeight: 1.6, maxWidth: 780 } }, "These questions contain nothing specific to your organisation, so they are safe to copy and share. Each costs ", CREDIT_COST.cedric, " credits to run, the same as any question to Cedric."));
+    })() : page === "suppliers" ? (() => {
       const si = supplierIntelligence(contracts);
       const grade = (g) => g ? { A: "ok", B: "ok", C: "warn" }[g] || "risk" : null;
       return /* @__PURE__ */ React.createElement("div", { className: "container" }, /* @__PURE__ */ React.createElement("h1", { style: { fontSize: 30, fontWeight: 700, marginBottom: 6 } }, "Supplier intelligence"), /* @__PURE__ */ React.createElement("p", { style: { color: "#56718A", marginBottom: 24 } }, "The same supplier bought three times by three teams under three names is the commonest source of recoverable spend \u2014 and it is invisible while you look at contracts one at a time."), si.list.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "No suppliers yet"), /* @__PURE__ */ React.createElement("p", null, "Add contract records and this becomes a map of who you buy from \u2014 including the same supplier bought twice under two names, and two suppliers doing the same job."), /* @__PURE__ */ React.createElement("button", { className: "btn", style: { marginTop: 14 }, onClick: () => {
@@ -1974,6 +3185,50 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
         },
         c.ref
       ))), /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 10px", borderBottom: "1px solid #EEF3FA", textAlign: "right", fontWeight: 700 } }, fmtMoney(g.spend)), /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 10px", borderBottom: "1px solid #EEF3FA", color: "#56718A" } }, g.categories.join(", ") || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 10px", borderBottom: "1px solid #EEF3FA", textAlign: "right" } }, g.worstGrade ? /* @__PURE__ */ React.createElement("span", { className: `pill ${grade(g.worstGrade)}`, style: { marginTop: 0 } }, g.worstGrade) : /* @__PURE__ */ React.createElement("span", { style: { color: "#C7D3E3" } }, "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 10px", borderBottom: "1px solid #EEF3FA", textAlign: "right", color: g.savings ? "#1d7a3a" : "#C7D3E3", fontWeight: 700 } }, g.savings ? fmtMoney(g.savings) : "\u2014")))))))));
+    })() : page === "vendorrisk" ? (() => {
+      const rows = vendorRisk(contracts);
+      const bandColour = (b) => b === "High" ? "#E0493E" : b === "Medium" ? "#C98A1E" : "#2E9E6B";
+      const dot = (s) => s === "present" ? { c: "#2E9E6B", t: "\u2713" } : s === "missing" ? { c: "#E0493E", t: "\u2715" } : s === "unclear" ? { c: "#C98A1E", t: "?" } : { c: "#C7D3E3", t: "\u2013" };
+      return /* @__PURE__ */ React.createElement("div", { className: "container" }, /* @__PURE__ */ React.createElement("h1", { style: { fontSize: 30, fontWeight: 700, marginBottom: 6 } }, "Vendor risk"), /* @__PURE__ */ React.createElement("p", { style: { color: "#56718A", marginBottom: 22, maxWidth: 820 } }, "The contract is only half the question. This is the other half: how badly it would hurt if this supplier stopped, and what they have actually committed to in writing."), rows.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "No suppliers yet"), /* @__PURE__ */ React.createElement("p", null, "Add contract records and analyse them, and each supplier is scored here on what they have committed to, how concentrated your spend is, and what is missing from the paperwork."), /* @__PURE__ */ React.createElement("button", { className: "btn", style: { marginTop: 14 }, onClick: () => setPage("portfolio") }, "Go to your contracts")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "grid4", style: { marginBottom: 22 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "Suppliers assessed"), /* @__PURE__ */ React.createElement("div", { className: "x" }, rows.length)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "High risk"), /* @__PURE__ */ React.createElement("div", { className: "x", style: { color: rows.filter((r) => r.band === "High").length ? "#E0493E" : "#2E9E6B" } }, rows.filter((r) => r.band === "High").length)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "Business critical"), /* @__PURE__ */ React.createElement("div", { className: "x", style: { color: "#C98A1E" } }, rows.filter((r) => r.criticality === "High").length)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "Not yet analysed"), /* @__PURE__ */ React.createElement("div", { className: "x", style: { color: rows.reduce((s, r) => s + (r.count - r.analysed), 0) ? "#C98A1E" : "#2E9E6B" } }, rows.reduce((s, r) => s + (r.count - r.analysed), 0)))), rows.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.key, className: "panel", style: { borderLeft: `3px solid ${bandColour(r.band)}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0 } }, r.names.join(" / ")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "#56718A", marginTop: 4 } }, r.count, " contract", r.count === 1 ? "" : "s", " \xB7 ", fmtMoney(r.spend), "/yr \xB7", " ", (r.spendShare * 100).toFixed(1), "% of portfolio spend \xB7 ", r.categories.join(", ") || "uncategorised")), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 30, fontWeight: 700, color: bandColour(r.band), lineHeight: 1 } }, r.score), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#8FA3BC", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 3 } }, r.band, " risk"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: "#56718A", marginTop: 4 } }, r.criticality, " criticality"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 7, flexWrap: "wrap", margin: "14px 0 12px" } }, r.findings.map((f) => {
+        const d = dot(f.status);
+        return /* @__PURE__ */ React.createElement(
+          "span",
+          {
+            key: f.key,
+            title: f.note || f.status,
+            style: {
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              border: "1px solid " + d.c + "40",
+              background: d.c + "12",
+              borderRadius: 100,
+              padding: "5px 11px",
+              fontSize: 11.5,
+              fontWeight: 600,
+              color: "#3D4F66"
+            }
+          },
+          /* @__PURE__ */ React.createElement("b", { style: { color: d.c } }, d.t),
+          " ",
+          f.label
+        );
+      })), /* @__PURE__ */ React.createElement("div", { style: { background: "#F7FAFE", border: "1px solid #E1EAF6", borderRadius: 7, padding: "11px 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "#8FA3BC", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 } }, "How this score is made up"), r.components.filter((c) => c.weight > 0).map((c, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 6 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "#3D4F66", width: 168 } }, c.label), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 5, background: "#E7EEF8", borderRadius: 3, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: `${Math.min(100, c.weight * 2.5)}%`, background: bandColour(r.band) } })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: "#7A8DA6", width: 190, textAlign: "right" } }, c.detail), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, fontWeight: 700, color: "#16283E", width: 26, textAlign: "right" } }, "+", c.weight))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: "#8FA3BC", marginTop: 8, lineHeight: 1.5 } }, "Every component is shown because an opaque risk score is not something you can act on. A tick means the protection was found in an analysed contract; a dash means we have not looked yet, which is not the same as it being absent.")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" } }, r.contracts.map((c) => /* @__PURE__ */ React.createElement(
+        "a",
+        {
+          key: c.id,
+          className: "btn ghost sm",
+          style: { textDecoration: "none" },
+          onClick: () => {
+            setSelectedId(c.id);
+            setPage("portfolio");
+            setTab("Compliance");
+          }
+        },
+        c.ref,
+        " \xB7 ",
+        c.supplier
+      )))))));
     })() : page === "obligations" ? (() => {
       const rows = allObligations(contracts, obligationTracking);
       const setTrack = (k, patch) => setObligationTracking((t) => ({ ...t, [k]: { ...t[k] || {}, ...patch } }));
@@ -2243,7 +3498,26 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
       },
       openVerifications(selected.analysis).length,
       " to verify"
-    ), selected.analysis && openVerifications(selected.analysis).length === 0 && ((_b = selected.analysis.dataPoints) == null ? void 0 : _b.length) > 0 && /* @__PURE__ */ React.createElement("span", { className: "pill ok", style: { cursor: "pointer" }, onClick: () => setTab("Verify") }, "Verified"), selected.autoRenew && /* @__PURE__ */ React.createElement("span", { className: "pill warn" }, "Auto-renews \xB7 ", selected.noticePeriodDays || "?", "-day notice"), /* @__PURE__ */ React.createElement("button", { className: "btn sm", disabled: analyzing, onClick: analyse }, analyzing && /* @__PURE__ */ React.createElement("span", { className: "spin" }), analyzing ? "Analysing\u2026" : selected.analysis ? "Re-run AI analysis" : "Run AI analysis"), currentUser.role === "Admin" && /* @__PURE__ */ React.createElement("button", { className: "btn ghost sm", style: { color: "#c0271d", borderColor: "rgba(192,39,29,0.4)" }, onClick: () => {
+    ), selected.analysis && openVerifications(selected.analysis).length === 0 && ((_b = selected.analysis.dataPoints) == null ? void 0 : _b.length) > 0 && /* @__PURE__ */ React.createElement("span", { className: "pill ok", style: { cursor: "pointer" }, onClick: () => setTab("Verify") }, "Verified"), selected.autoRenew && /* @__PURE__ */ React.createElement("span", { className: "pill warn" }, "Auto-renews \xB7 ", selected.noticePeriodDays || "?", "-day notice"), (() => {
+      const readyToAnalyse = !selected.analysis && (selected.documents || []).some((d) => d.text && !d.purged);
+      return /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          className: "btn sm",
+          disabled: analyzing,
+          onClick: analyse,
+          style: readyToAnalyse && !analyzing ? {
+            background: "#C0271D",
+            borderColor: "#C0271D",
+            color: "#fff",
+            boxShadow: "0 4px 14px rgba(192,39,29,0.32)"
+          } : void 0,
+          title: readyToAnalyse ? "Documents are ingested and ready \u2014 run the analysis" : void 0
+        },
+        analyzing && /* @__PURE__ */ React.createElement("span", { className: "spin" }),
+        analyzing ? "Analysing\u2026" : selected.analysis ? "Re-run AI analysis" : "Run AI analysis"
+      );
+    })(), currentUser.role === "Admin" && /* @__PURE__ */ React.createElement("button", { className: "btn ghost sm", style: { color: "#c0271d", borderColor: "rgba(192,39,29,0.4)" }, onClick: () => {
       if (window.confirm(`Permanently delete ${selected.ref} (${selected.supplier}) and all its documents and analysis? This cannot be undone.`)) {
         setContracts((cs) => cs.filter((c) => c.id !== selected.id));
         setSelectedId(null);
@@ -2288,7 +3562,36 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
     ), /* @__PURE__ */ React.createElement("input", { type: "file", multiple: true, hidden: true, ref: fileRef, onChange: (e) => {
       onFiles([...e.target.files]);
       e.target.value = "";
-    } }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: "#7B8CA3", marginTop: 10, lineHeight: 1.55 } }, /* @__PURE__ */ React.createElement("b", null, "Transcripts:"), " meeting recordings contain participants' personal data, so only upload transcripts of meetings your organisation had a lawful basis to record, and tell participants the record may be retained against the contract. Zero-Retention mode purges transcript text after analysis, keeping only the extracted knowledge."), selected.documents.map((d) => /* @__PURE__ */ React.createElement("div", { className: "doc-item", key: d.id, style: d.scanned ? { borderLeft: "3px solid #EE9420", background: "#FFFBF4" } : void 0 }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("span", { className: "nm" }, d.name), /* @__PURE__ */ React.createElement("span", { className: "tp" }, d.type, " \xB7 ", (d.size / 1024).toFixed(0), " KB", d.pageCount ? ` \xB7 ${d.pageCount}pp` : "", " ", d.purged ? "\xB7 text purged (Zero-Retention)" : d.scanned ? "\xB7 scanned image \u2014 no text layer" : d.ocr ? `\xB7 text recovered by OCR (${d.ocr.chars.toLocaleString()} chars)` : d.text ? "\xB7 content ingested" : "\xB7 metadata only", d.uploadedBy ? ` \xB7 by ${d.uploadedBy}` : ""), d.consent && /* @__PURE__ */ React.createElement("span", { className: "tp", style: { color: "#2E9E6B" } }, "\u2713 recording consent accepted by ", d.consent.by, " on ", new Date(d.consent.at).toLocaleDateString("en-GB")), d.scanned && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, (ocrBusy == null ? void 0 : ocrBusy.docId) === d.id ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "#C98A1E", fontWeight: 700, display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("span", { className: "spin" }), "Reading page ", ocrBusy.page || 1, ocrBusy.total ? ` of ${ocrBusy.total}` : "", "\u2026") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { className: "btn sm", onClick: () => ocrDocument(d.id) }, "Run OCR to read this document"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: "#86868b", marginLeft: 10 } }, "Runs in your browser \u2014 the document is not sent anywhere.")))), /* @__PURE__ */ React.createElement("a", { onClick: () => update(selected.id, { documents: selected.documents.filter((x) => x.id !== d.id) }) }, "Remove"))))), !cedricOpen && /* @__PURE__ */ React.createElement("button", { className: "cedric-fab", onClick: () => setCedricOpen(true) }, "\u2726 Ask Cedric"), search.trim().length >= 2 && (() => {
+    } }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: "#7B8CA3", marginTop: 10, lineHeight: 1.55 } }, /* @__PURE__ */ React.createElement("b", null, "Transcripts:"), " meeting recordings contain participants' personal data, so only upload transcripts of meetings your organisation had a lawful basis to record, and tell participants the record may be retained against the contract. Zero-Retention mode purges transcript text after analysis, keeping only the extracted knowledge."), selected.documents.map((d) => /* @__PURE__ */ React.createElement("div", { className: "doc-item", key: d.id, style: d.scanned ? { borderLeft: "3px solid #EE9420", background: "#FFFBF4" } : void 0 }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("span", { className: "nm" }, d.name), /* @__PURE__ */ React.createElement("span", { className: "tp" }, d.type, " \xB7 ", (d.size / 1024).toFixed(0), " KB", d.pageCount ? ` \xB7 ${d.pageCount}pp` : "", " ", d.purged ? "\xB7 text purged (Zero-Retention)" : d.scanned ? "\xB7 scanned image \u2014 no text layer" : d.ocr ? `\xB7 text recovered by OCR (${d.ocr.chars.toLocaleString()} chars)` : d.text ? "\xB7 content ingested" : "\xB7 metadata only", d.uploadedBy ? ` \xB7 by ${d.uploadedBy}` : ""), d.consent && /* @__PURE__ */ React.createElement("span", { className: "tp", style: { color: "#2E9E6B" } }, "\u2713 recording consent accepted by ", d.consent.by, " on ", new Date(d.consent.at).toLocaleDateString("en-GB")), d.scanned && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, (ocrBusy == null ? void 0 : ocrBusy.docId) === d.id ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "#C98A1E", fontWeight: 700, display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("span", { className: "spin" }), "Reading page ", ocrBusy.page || 1, ocrBusy.total ? ` of ${ocrBusy.total}` : "", "\u2026") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { className: "btn sm", onClick: () => ocrDocument(d.id) }, "Run OCR to read this document"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: "#86868b", marginLeft: 10 } }, "Runs in your browser \u2014 the document is not sent anywhere.")))), /* @__PURE__ */ React.createElement("a", { onClick: () => update(selected.id, { documents: selected.documents.filter((x) => x.id !== d.id) }) }, "Remove"))))), !cedricOpen && /* @__PURE__ */ React.createElement("button", { className: "cedric-fab", onClick: () => setCedricOpen(true) }, "\u2726 Ask Cedric"), activeJobs.length > 0 && /* @__PURE__ */ React.createElement("div", { style: {
+      position: "fixed",
+      bottom: 18,
+      right: 18,
+      zIndex: 900,
+      width: 340,
+      background: "#fff",
+      border: "1px solid #D6E3F5",
+      borderRadius: 10,
+      boxShadow: "0 18px 44px rgba(15,43,76,0.18)",
+      overflow: "hidden"
+    } }, /* @__PURE__ */ React.createElement("div", { style: {
+      background: "#0F2B4C",
+      color: "#fff",
+      padding: "10px 14px",
+      display: "flex",
+      alignItems: "center",
+      gap: 9,
+      fontSize: 13,
+      fontWeight: 700
+    } }, activeJobs.some((j) => j.status !== "dead") && /* @__PURE__ */ React.createElement("span", { className: "spin" }), "Background analysis", /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontSize: 11.5, color: "#A9CFF6", fontWeight: 600 } }, activeJobs.filter((j) => j.status !== "dead").length, " running")), /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 280, overflowY: "auto" } }, activeJobs.map((j) => /* @__PURE__ */ React.createElement("div", { key: j.id, style: { padding: "11px 14px", borderBottom: "1px solid #EEF3FA" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5, fontWeight: 700, color: "#16283E" } }, j.ref || j.contract_id, j.supplier ? ` \xB7 ${j.supplier}` : ""), /* @__PURE__ */ React.createElement("span", { style: {
+      fontSize: 11,
+      fontWeight: 700,
+      color: j.status === "dead" ? "#B23A31" : j.status === "running" ? "#2F7BD9" : "#7A8DA6"
+    } }, j.status === "dead" ? "Failed" : j.status === "running" ? `${j.progress || 0}%` : "Queued")), j.status !== "dead" && /* @__PURE__ */ React.createElement("div", { style: { height: 4, background: "#EEF3FA", borderRadius: 2, overflow: "hidden", marginTop: 7 } }, /* @__PURE__ */ React.createElement("div", { style: {
+      height: "100%",
+      width: `${j.status === "running" ? j.progress || 5 : 2}%`,
+      background: "#2F7BD9",
+      transition: "width .4s"
+    } })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: j.status === "dead" ? "#B23A31" : "#7A8DA6", marginTop: 5 } }, j.status === "dead" ? j.error ? String(j.error).slice(0, 80) : "Failed after several attempts" : j.progress_note || "Waiting for a worker\u2026", j.attempts > 1 && j.status !== "dead" && ` \xB7 attempt ${j.attempts}`)))), /* @__PURE__ */ React.createElement("div", { style: { padding: "9px 14px", fontSize: 11.5, color: "#7A8DA6", background: "#F7FAFE" } }, "You can close this tab \u2014 the work carries on without you.")), search.trim().length >= 2 && (() => {
       const results = searchPortfolio(contracts, search);
       const hits = results.reduce((s, r) => s + r.total, 0);
       return /* @__PURE__ */ React.createElement("div", { className: "modal-bg", onClick: () => setSearch(""), style: { alignItems: "flex-start", paddingTop: 70 } }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation(), style: { maxWidth: 720, maxHeight: "78vh", overflowY: "auto" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 } }, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 20 } }, hits === 0 ? "No matches" : `${hits} match${hits === 1 ? "" : "es"} in ${results.length} contract${results.length === 1 ? "" : "s"}`), /* @__PURE__ */ React.createElement("a", { style: { fontSize: 12.5, color: "#2F7BD9", cursor: "pointer", fontWeight: 700 }, onClick: () => setSearch("") }, "Close")), /* @__PURE__ */ React.createElement("div", { className: "mh", style: { marginTop: 4, marginBottom: 14 } }, "Searching record details, ingested document text, and every analysis finding for \u201C", search, "\u201D."), hits === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, color: "#56718A", lineHeight: 1.6 } }, "Nothing found. Documents are only searchable once their text has been ingested \u2014 a scanned PDF needs OCR running first.") : results.map(({ contract, hits: hl, total }) => /* @__PURE__ */ React.createElement("div", { key: contract.id, style: { border: "1px solid #E1EAF6", borderRadius: 7, padding: "13px 15px", marginBottom: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
