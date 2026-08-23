@@ -1812,6 +1812,73 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
     const active = LEGAL[tab];
     return /* @__PURE__ */ React.createElement("div", { onClick: onClose, style: { position: "fixed", inset: 0, background: "rgba(8,22,39,0.6)", backdropFilter: "blur(4px)", zIndex: 1e3, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 } }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { background: "#fff", borderRadius: 10, borderTop: "3px solid #2F7BD9", width: 620, maxWidth: "100%", maxHeight: "84vh", display: "flex", flexDirection: "column", boxShadow: "0 30px 80px rgba(4,14,28,0.5)" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, padding: "16px 20px 0", borderBottom: "1px solid #E1EAF6" } }, tabs.map(([k, label]) => /* @__PURE__ */ React.createElement("button", { key: k, onClick: () => setTab(k), style: { border: "none", background: "none", cursor: "pointer", padding: "8px 14px", fontFamily: "inherit", fontSize: 14, fontWeight: 700, color: tab === k ? "#2F7BD9" : "#62748B", borderBottom: tab === k ? "2px solid #2F7BD9" : "2px solid transparent" } }, label)), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { marginLeft: "auto", border: "none", background: "none", cursor: "pointer", fontSize: 20, color: "#62748B", lineHeight: 1 } }, "\xD7")), /* @__PURE__ */ React.createElement("div", { style: { padding: "20px 24px", overflowY: "auto" } }, /* @__PURE__ */ React.createElement("h2", { style: { fontSize: 21, fontWeight: 700, color: "#0B1D33", margin: 0 } }, active.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#86868b", margin: "4px 0 18px" } }, active.updated), active.body.map(([h, p], i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: "#16283E", marginBottom: 3 } }, h), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "#3D4F66", lineHeight: 1.55 } }, p))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: "#86868b", marginTop: 8, paddingTop: 12, borderTop: "1px solid #E1EAF6", lineHeight: 1.5 } }, "Summary for in-app reference. The full canonical versions are on the ContractIQ Hub website and prevail. ContractIQ is an automated screening aid, not legal advice."))));
   }
+  function PasswordField({ label, value, onChange, placeholder, autoComplete, onEnter, shown, onToggle }) {
+    return /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, label), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: shown ? "text" : "password",
+        value,
+        onChange,
+        placeholder,
+        autoComplete,
+        onKeyDown: (e) => {
+          if (e.key === "Enter" && onEnter) onEnter();
+        },
+        style: { paddingRight: 44, width: "100%", boxSizing: "border-box" }
+      }
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        onClick: onToggle,
+        "aria-label": shown ? "Hide password" : "Show password",
+        title: shown ? "Hide password" : "Show password",
+        style: {
+          position: "absolute",
+          right: 6,
+          top: "50%",
+          transform: "translateY(-50%)",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: 6,
+          display: "flex",
+          alignItems: "center",
+          color: shown ? "#2F7BD9" : "#8FA3BC"
+        }
+      },
+      shown ? /* @__PURE__ */ React.createElement(
+        "svg",
+        {
+          width: "18",
+          height: "18",
+          viewBox: "0 0 24 24",
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: "2",
+          strokeLinecap: "round",
+          strokeLinejoin: "round"
+        },
+        /* @__PURE__ */ React.createElement("path", { d: "M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19M6.61 6.61A18.15 18.15 0 0 0 2 12s3 8 10 8a9.7 9.7 0 0 0 5.39-1.61" }),
+        /* @__PURE__ */ React.createElement("path", { d: "M14.12 14.12a3 3 0 1 1-4.24-4.24" }),
+        /* @__PURE__ */ React.createElement("path", { d: "m2 2 20 20" })
+      ) : /* @__PURE__ */ React.createElement(
+        "svg",
+        {
+          width: "18",
+          height: "18",
+          viewBox: "0 0 24 24",
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: "2",
+          strokeLinecap: "round",
+          strokeLinejoin: "round"
+        },
+        /* @__PURE__ */ React.createElement("path", { d: "M2 12s3-8 10-8 10 8 10 8-3 8-10 8-10-8-10-8Z" }),
+        /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "3" })
+      )
+    )));
+  }
   function ContractIQ() {
     var _a, _b, _c, _d, _e, _f, _g, _h, _i;
     const [accountUsers, setAccountUsers] = useState(seedUsers);
@@ -2286,93 +2353,20 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
         if (e.key === "Escape") {
           if (search) setSearch("");
           else if (consentPrompt) setConsentPrompt(null);
+          else if (showNew) setShowNew(false);
           else if (showSettings) setShowSettings(false);
           else if (cedricOpen) setCedricOpen(false);
         }
       };
       window.addEventListener("keydown", onKey);
       return () => window.removeEventListener("keydown", onKey);
-    }, [search, consentPrompt, showSettings, cedricOpen]);
-    const PasswordField = ({ label, value, onChange, placeholder, autoComplete, onEnter, id }) => {
-      const shown = !!pwShown[id];
-      return /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, label), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement(
-        "input",
-        {
-          type: shown ? "text" : "password",
-          value,
-          onChange,
-          placeholder,
-          autoComplete,
-          onKeyDown: (e) => {
-            if (e.key === "Enter" && onEnter) onEnter();
-          },
-          style: { paddingRight: 44, width: "100%", boxSizing: "border-box" }
-        }
-      ), /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          type: "button",
-          onClick: () => setPwShown((p) => ({ ...p, [id]: !p[id] })),
-          "aria-label": shown ? "Hide password" : "Show password",
-          title: shown ? "Hide password" : "Show password",
-          style: {
-            position: "absolute",
-            right: 6,
-            top: "50%",
-            transform: "translateY(-50%)",
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            padding: 6,
-            display: "flex",
-            alignItems: "center",
-            color: shown ? "#2F7BD9" : "#8FA3BC"
-          }
-        },
-        shown ? (
-          // eye-off
-          /* @__PURE__ */ React.createElement(
-            "svg",
-            {
-              width: "18",
-              height: "18",
-              viewBox: "0 0 24 24",
-              fill: "none",
-              stroke: "currentColor",
-              strokeWidth: "2",
-              strokeLinecap: "round",
-              strokeLinejoin: "round"
-            },
-            /* @__PURE__ */ React.createElement("path", { d: "M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19M6.61 6.61A18.15 18.15 0 0 0 2 12s3 8 10 8a9.7 9.7 0 0 0 5.39-1.61" }),
-            /* @__PURE__ */ React.createElement("path", { d: "M14.12 14.12a3 3 0 1 1-4.24-4.24" }),
-            /* @__PURE__ */ React.createElement("path", { d: "m2 2 20 20" })
-          )
-        ) : (
-          // eye
-          /* @__PURE__ */ React.createElement(
-            "svg",
-            {
-              width: "18",
-              height: "18",
-              viewBox: "0 0 24 24",
-              fill: "none",
-              stroke: "currentColor",
-              strokeWidth: "2",
-              strokeLinecap: "round",
-              strokeLinejoin: "round"
-            },
-            /* @__PURE__ */ React.createElement("path", { d: "M2 12s3-8 10-8 10 8 10 8-3 8-10 8-10-8-10-8Z" }),
-            /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "3" })
-          )
-        )
-      )));
-    };
+    }, [search, consentPrompt, showNew, showSettings, cedricOpen]);
     if (!currentUser) {
       const supaReady = !!(sb.url && sb.key);
       const pw = passwordStrength(authForm.password);
       const mail = mailProviderLink(pendingEmail);
       const set = (k) => (e) => setAuthForm((f) => ({ ...f, [k]: e.target.value }));
-      const Msg = () => !authMsg ? null : /* @__PURE__ */ React.createElement("div", { style: {
+      const renderMsg = () => !authMsg ? null : /* @__PURE__ */ React.createElement("div", { style: {
         background: authMsg.kind === "err" ? "#FDEEEC" : authMsg.kind === "warn" ? "#FDF6E8" : "#EFF8F3",
         border: "1px solid " + (authMsg.kind === "err" ? "#F0C4BF" : authMsg.kind === "warn" ? "#EBD9AE" : "#BFE3D0"),
         color: authMsg.kind === "err" ? "#B23A31" : authMsg.kind === "warn" ? "#8A5A0E" : "#1F7A52",
@@ -2382,7 +2376,7 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
         lineHeight: 1.55,
         margin: "0 0 14px"
       } }, authMsg.text);
-      const OAuthRow = () => /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, margin: "18px 0 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: "#E1EAF6" } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: "#8FA3BC", fontWeight: 700 } }, "OR"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: "#E1EAF6" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 9 } }, /* @__PURE__ */ React.createElement(
+      const renderOAuth = () => /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, margin: "18px 0 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: "#E1EAF6" } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: "#8FA3BC", fontWeight: 700 } }, "OR"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: "#E1EAF6" } })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 9 } }, /* @__PURE__ */ React.createElement(
         "button",
         {
           className: "btn ghost",
@@ -2453,7 +2447,7 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
           color: "#0B1D33",
           wordBreak: "break-all",
           marginBottom: 18
-        } }, pendingEmail), /* @__PURE__ */ React.createElement(Msg, null), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "#56718A", lineHeight: 1.65, marginBottom: 16 } }, "Enter the 6-digit code from that email. It expires in one hour."), /* @__PURE__ */ React.createElement(
+        } }, pendingEmail), renderMsg(), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "#56718A", lineHeight: 1.65, marginBottom: 16 } }, "Enter the 6-digit code from that email. It expires in one hour."), /* @__PURE__ */ React.createElement(
           "div",
           {
             style: { display: "flex", gap: 8, justifyContent: "center", marginBottom: 6 },
@@ -2569,7 +2563,7 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
         )))));
       }
       if (authView === "forgot") {
-        return /* @__PURE__ */ React.createElement("div", { className: "ciq" }, /* @__PURE__ */ React.createElement("style", null, CSS), /* @__PURE__ */ React.createElement("div", { className: "login-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "login" }, /* @__PURE__ */ React.createElement("h1", null, "Reset your password"), /* @__PURE__ */ React.createElement("div", { className: "tag", style: { marginBottom: 18 } }, "We\u2019ll email you a link to set a new one."), /* @__PURE__ */ React.createElement(Msg, null), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Work email"), /* @__PURE__ */ React.createElement(
+        return /* @__PURE__ */ React.createElement("div", { className: "ciq" }, /* @__PURE__ */ React.createElement("style", null, CSS), /* @__PURE__ */ React.createElement("div", { className: "login-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "login" }, /* @__PURE__ */ React.createElement("h1", null, "Reset your password"), /* @__PURE__ */ React.createElement("div", { className: "tag", style: { marginBottom: 18 } }, "We\u2019ll email you a link to set a new one."), renderMsg(), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Work email"), /* @__PURE__ */ React.createElement(
           "input",
           {
             type: "email",
@@ -2603,7 +2597,7 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
         )))));
       }
       if (authView === "signup") {
-        return /* @__PURE__ */ React.createElement("div", { className: "ciq" }, /* @__PURE__ */ React.createElement("style", null, CSS), /* @__PURE__ */ React.createElement("div", { className: "login-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "login", style: { maxWidth: 430 } }, /* @__PURE__ */ React.createElement("h1", null, "Contract", /* @__PURE__ */ React.createElement("span", null, "IQ"), " App"), /* @__PURE__ */ React.createElement("div", { className: "tag", style: { marginBottom: 20 } }, "Create your workspace \u2014 free, no card required"), /* @__PURE__ */ React.createElement(Msg, null), !supaReady && /* @__PURE__ */ React.createElement("div", { style: {
+        return /* @__PURE__ */ React.createElement("div", { className: "ciq" }, /* @__PURE__ */ React.createElement("style", null, CSS), /* @__PURE__ */ React.createElement("div", { className: "login-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "login", style: { maxWidth: 430 } }, /* @__PURE__ */ React.createElement("h1", null, "Contract", /* @__PURE__ */ React.createElement("span", null, "IQ"), " App"), /* @__PURE__ */ React.createElement("div", { className: "tag", style: { marginBottom: 20 } }, "Create your workspace \u2014 free, no card required"), renderMsg(), !supaReady && /* @__PURE__ */ React.createElement("div", { style: {
           background: "#FDF6E8",
           border: "1px solid #EBD9AE",
           color: "#8A5A0E",
@@ -2640,13 +2634,14 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
         )), /* @__PURE__ */ React.createElement(
           PasswordField,
           {
-            id: "signup",
             label: "Password",
             value: authForm.password,
             onChange: set("password"),
             placeholder: "At least 8 characters",
             autoComplete: "new-password",
-            onEnter: doSignUp
+            onEnter: doSignUp,
+            shown: !!pwShown.signup,
+            onToggle: () => setPwShown((p) => ({ ...p, signup: !p.signup }))
           }
         ), authForm.password && /* @__PURE__ */ React.createElement("div", { style: { marginTop: -6, marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { height: 4, background: "#EEF3FA", borderRadius: 2, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: {
           height: "100%",
@@ -2716,7 +2711,7 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
             onClick: doSignUp
           },
           authBusy ? "Creating your workspace\u2026" : "Create account"
-        ), supaReady && /* @__PURE__ */ React.createElement(OAuthRow, null), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12.5, color: "#86868b", marginTop: 18 } }, "Already have an account?", " ", /* @__PURE__ */ React.createElement(
+        ), supaReady && renderOAuth(), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12.5, color: "#86868b", marginTop: 18 } }, "Already have an account?", " ", /* @__PURE__ */ React.createElement(
           "a",
           {
             href: "#",
@@ -2730,7 +2725,7 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
           "Sign in"
         )), legalView && /* @__PURE__ */ React.createElement(LegalModal, { view: legalView, onClose: () => setLegalView(null) }))));
       }
-      return /* @__PURE__ */ React.createElement("div", { className: "ciq" }, /* @__PURE__ */ React.createElement("style", null, CSS), /* @__PURE__ */ React.createElement("div", { className: "login-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "login" }, /* @__PURE__ */ React.createElement("h1", null, "Contract", /* @__PURE__ */ React.createElement("span", null, "IQ"), " App"), /* @__PURE__ */ React.createElement("div", { className: "tag", style: { marginBottom: 20 } }, ED.name, " \xB7 Sign in to your workspace"), /* @__PURE__ */ React.createElement(Msg, null), supaReady && !useDemoAuth ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Work email"), /* @__PURE__ */ React.createElement(
+      return /* @__PURE__ */ React.createElement("div", { className: "ciq" }, /* @__PURE__ */ React.createElement("style", null, CSS), /* @__PURE__ */ React.createElement("div", { className: "login-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "login" }, /* @__PURE__ */ React.createElement("h1", null, "Contract", /* @__PURE__ */ React.createElement("span", null, "IQ"), " App"), /* @__PURE__ */ React.createElement("div", { className: "tag", style: { marginBottom: 20 } }, ED.name, " \xB7 Sign in to your workspace"), renderMsg(), supaReady && !useDemoAuth ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Work email"), /* @__PURE__ */ React.createElement(
         "input",
         {
           type: "email",
@@ -2742,13 +2737,14 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
       )), /* @__PURE__ */ React.createElement(
         PasswordField,
         {
-          id: "signin",
           label: "Password",
           value: authForm.password,
           onChange: set("password"),
           placeholder: "Your password",
           autoComplete: "current-password",
-          onEnter: doSignIn
+          onEnter: doSignIn,
+          shown: !!pwShown.signin,
+          onToggle: () => setPwShown((p) => ({ ...p, signin: !p.signin }))
         }
       ), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", marginTop: -8, marginBottom: 14 } }, /* @__PURE__ */ React.createElement(
         "a",
@@ -2771,7 +2767,7 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
           onClick: doSignIn
         },
         authBusy ? "Signing in\u2026" : "Sign in"
-      ), /* @__PURE__ */ React.createElement(OAuthRow, null), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12.5, color: "#86868b", marginTop: 18 } }, "New here?", " ", /* @__PURE__ */ React.createElement(
+      ), renderOAuth(), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12.5, color: "#86868b", marginTop: 18 } }, "New here?", " ", /* @__PURE__ */ React.createElement(
         "a",
         {
           href: "#",
@@ -2803,13 +2799,14 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
       )), /* @__PURE__ */ React.createElement(
         PasswordField,
         {
-          id: "demo",
           label: "Password",
           value: login.password,
           onChange: (e) => setLogin((p) => ({ ...p, password: e.target.value })),
           placeholder: "password",
           autoComplete: "current-password",
-          onEnter: doLogin
+          onEnter: doLogin,
+          shown: !!pwShown.demo,
+          onToggle: () => setPwShown((p) => ({ ...p, demo: !p.demo }))
         }
       ), loginErr && /* @__PURE__ */ React.createElement("div", { style: { color: "#B23A31", fontSize: 12.5, marginBottom: 12 } }, loginErr), /* @__PURE__ */ React.createElement("label", { style: {
         display: "flex",
@@ -4047,7 +4044,51 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
         onKeyDown: (e) => e.key === "Enter" && sendCedric(),
         placeholder: "Ask Cedric anything about a contract\u2026"
       }
-    ), /* @__PURE__ */ React.createElement("button", { className: "btn sm", disabled: cedricBusy, onClick: () => sendCedric() }, "Send"))), showNew && /* @__PURE__ */ React.createElement("div", { className: "modal-bg", onClick: (e) => e.target === e.currentTarget && setShowNew(false) }, /* @__PURE__ */ React.createElement("div", { className: "modal", style: { width: 460 } }, /* @__PURE__ */ React.createElement("h2", null, "New Contract Record"), /* @__PURE__ */ React.createElement("div", { className: "mh" }, "Just two details to start \u2014 everything else (value, term, dates, users, category) is extracted automatically when you ingest the contract's documents and run analysis."), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Contract Ref"), /* @__PURE__ */ React.createElement("input", { value: form.ref, onChange: (e) => setForm((p) => ({ ...p, ref: e.target.value })), placeholder: "e.g. CTR-0004", autoFocus: true })), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Supplier"), /* @__PURE__ */ React.createElement("input", { value: form.supplier, onChange: (e) => setForm((p) => ({ ...p, supplier: e.target.value })), onKeyDown: (e) => e.key === "Enter" && createRecord(), placeholder: "e.g. Microsoft" })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "btn ghost", onClick: () => setShowNew(false) }, "Cancel"), /* @__PURE__ */ React.createElement("button", { className: "btn", onClick: createRecord }, "Create record")))), showSettings && /* @__PURE__ */ React.createElement("div", { className: "modal-bg", onClick: (e) => e.target === e.currentTarget && setShowSettings(false) }, /* @__PURE__ */ React.createElement("div", { className: "modal", style: { width: 560 } }, /* @__PURE__ */ React.createElement("h2", null, "Settings"), /* @__PURE__ */ React.createElement("div", { className: "mh" }, "Your edition, workspace connection and business-account users."), /* @__PURE__ */ React.createElement("div", { style: { background: "#F5F9FE", borderLeft: "4px solid #2F7BD9", borderRadius: 6, padding: "18px 20px", marginBottom: 18 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 } }, /* @__PURE__ */ React.createElement("b", { style: { fontSize: 16, color: "#0B1D33" } }, ED.name), /* @__PURE__ */ React.createElement("span", { className: "pill blue", style: { marginTop: 0 } }, ED.price)), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12, fontSize: 13, fontWeight: 700, color: "#56718A", textTransform: "uppercase", letterSpacing: "0.1em" } }, "Credit balance"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 15, fontWeight: 700, marginTop: 4 } }, creditsUsed, " of ", creditsIncluded.toLocaleString(), " used ", ED.windowLabel, " \xB7 ", creditsLeft.toLocaleString(), " remaining"), /* @__PURE__ */ React.createElement("div", { style: { height: 7, background: "#DDE9F8", borderRadius: 4, marginTop: 8, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: `${Math.min(100, creditsUsed / creditsIncluded * 100)}%`, background: creditsLeft === 0 ? "#E0493E" : creditsLeft < creditsIncluded * 0.15 ? "#EE9420" : "#2F7BD9" } })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#56718A", marginTop: 8 } }, "That is about ", /* @__PURE__ */ React.createElement("b", null, analysesLeft), " more analyses, or ", /* @__PURE__ */ React.createElement("b", null, Math.floor(creditsLeft / CREDIT_COST.cedric)), " more questions to Cedric. An analysis costs ", CREDIT_COST.analysis, " credits, a question costs ", CREDIT_COST.cedric, ", and re-running an analysis inside the revision window is free."), /* @__PURE__ */ React.createElement("ul", { style: { margin: "14px 0 0", paddingLeft: 18, fontSize: 13.5, color: "#3D4F66", lineHeight: 1.7 } }, ED.features.map((f, i) => /* @__PURE__ */ React.createElement("li", { key: i }, f))), EDITION !== "enterprise" && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12.5, color: "#56718A", marginTop: 12 } }, "Need more? ", EDITION === "sandbox" ? "Growth adds 15 audits a month, custom playbooks and advanced cross-clause logic." : "Enterprise adds custom volume, Zero-Retention, dedicated API keys and corporate SSO.")), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Supabase project URL"), /* @__PURE__ */ React.createElement("input", { value: sb.url, onChange: (e) => setSb((p) => ({ ...p, url: e.target.value.replace(/\/$/, "") })), placeholder: "https://xxxx.supabase.co" })), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Anon key"), /* @__PURE__ */ React.createElement("input", { value: sb.key, onChange: (e) => setSb((p) => ({ ...p, key: e.target.value })), placeholder: "eyJ\u2026" })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("button", { className: "btn ghost sm", onClick: () => doSync("push") }, "Sync to Supabase \u2191"), /* @__PURE__ */ React.createElement("button", { className: "btn ghost sm", onClick: () => doSync("pull") }, "Load from Supabase \u2193")), /* @__PURE__ */ React.createElement("h2", { style: { fontSize: 18, marginTop: 4 } }, "Playbook Playground"), ED.playbook ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "mh", style: { marginBottom: 10 } }, "Your organisation's own vetting rules. Every analysis grades contracts against these positions \u2014 deviations lower the health score and risk grade."), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement("button", { className: "btn sm", disabled: cedricBusy, onClick: () => sendCedric() }, "Send"))), showNew && /* @__PURE__ */ React.createElement("div", { className: "modal-bg", onClick: (e) => e.target === e.currentTarget && setShowNew(false) }, /* @__PURE__ */ React.createElement("div", { className: "modal", style: { width: 460 } }, /* @__PURE__ */ React.createElement("h2", null, "New Contract Record"), /* @__PURE__ */ React.createElement("div", { className: "mh" }, "Just two details to start \u2014 everything else (value, term, dates, users, category) is extracted automatically when you ingest the contract's documents and run analysis."), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Contract Ref"), /* @__PURE__ */ React.createElement("input", { value: form.ref, onChange: (e) => setForm((p) => ({ ...p, ref: e.target.value })), placeholder: "e.g. CTR-0004", autoFocus: true })), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Supplier"), /* @__PURE__ */ React.createElement("input", { value: form.supplier, onChange: (e) => setForm((p) => ({ ...p, supplier: e.target.value })), onKeyDown: (e) => e.key === "Enter" && createRecord(), placeholder: "e.g. Microsoft" })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "btn ghost", onClick: () => setShowNew(false) }, "Cancel"), /* @__PURE__ */ React.createElement("button", { className: "btn", onClick: createRecord }, "Create record")))), showSettings && /* @__PURE__ */ React.createElement("div", { className: "modal-bg", onClick: (e) => e.target === e.currentTarget && setShowSettings(false) }, /* @__PURE__ */ React.createElement("div", { className: "modal", style: { width: 560 } }, /* @__PURE__ */ React.createElement("h2", null, "Settings"), /* @__PURE__ */ React.createElement("div", { className: "mh" }, "Your edition, workspace connection and business-account users."), /* @__PURE__ */ React.createElement("div", { style: { background: "#F5F9FE", borderLeft: "4px solid #2F7BD9", borderRadius: 6, padding: "18px 20px", marginBottom: 18 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 } }, /* @__PURE__ */ React.createElement("b", { style: { fontSize: 16, color: "#0B1D33" } }, ED.name), /* @__PURE__ */ React.createElement("span", { className: "pill blue", style: { marginTop: 0 } }, ED.price)), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12, fontSize: 13, fontWeight: 700, color: "#56718A", textTransform: "uppercase", letterSpacing: "0.1em" } }, "Credit balance"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 15, fontWeight: 700, marginTop: 4 } }, creditsUsed, " of ", creditsIncluded.toLocaleString(), " used ", ED.windowLabel, " \xB7 ", creditsLeft.toLocaleString(), " remaining"), /* @__PURE__ */ React.createElement("div", { style: { height: 7, background: "#DDE9F8", borderRadius: 4, marginTop: 8, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: `${Math.min(100, creditsUsed / creditsIncluded * 100)}%`, background: creditsLeft === 0 ? "#E0493E" : creditsLeft < creditsIncluded * 0.15 ? "#EE9420" : "#2F7BD9" } })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#56718A", marginTop: 8 } }, "That is about ", /* @__PURE__ */ React.createElement("b", null, analysesLeft), " more analyses, or ", /* @__PURE__ */ React.createElement("b", null, Math.floor(creditsLeft / CREDIT_COST.cedric)), " more questions to Cedric. An analysis costs ", CREDIT_COST.analysis, " credits, a question costs ", CREDIT_COST.cedric, ", and re-running an analysis inside the revision window is free."), /* @__PURE__ */ React.createElement("ul", { style: { margin: "14px 0 0", paddingLeft: 18, fontSize: 13.5, color: "#3D4F66", lineHeight: 1.7 } }, ED.features.map((f, i) => /* @__PURE__ */ React.createElement("li", { key: i }, f))), EDITION !== "enterprise" && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12.5, color: "#56718A", marginTop: 12 } }, "Need more? ", EDITION === "sandbox" ? "Growth adds 15 audits a month, custom playbooks and advanced cross-clause logic." : "Enterprise adds custom volume, Zero-Retention, dedicated API keys and corporate SSO.")), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Supabase project URL"), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        value: sb.url,
+        onChange: (e) => setSb((p) => ({ ...p, url: e.target.value })),
+        onBlur: (e) => setSb((p) => ({ ...p, url: e.target.value.trim().replace(/\/+$/, "") })),
+        placeholder: "https://xxxx.supabase.co"
+      }
+    )), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Publishable key ", /* @__PURE__ */ React.createElement("span", { style: { color: "#8FA3BC", fontWeight: 400 } }, "(or legacy anon key)")), /* @__PURE__ */ React.createElement("input", { value: sb.key, onChange: (e) => setSb((p) => ({ ...p, key: e.target.value })), placeholder: "sb_publishable_\u2026" })), sb.key && sb.key.startsWith("sb_secret_") && /* @__PURE__ */ React.createElement("div", { style: {
+      background: "#FDEEEC",
+      border: "1px solid #F0C4BF",
+      color: "#B23A31",
+      borderRadius: 7,
+      padding: "10px 13px",
+      fontSize: 12.5,
+      lineHeight: 1.55,
+      marginBottom: 12
+    } }, /* @__PURE__ */ React.createElement("b", null, "That is a secret key."), " It bypasses every security rule on your database and must never go in a browser \u2014 Supabase rejects it from here anyway. Use the ", /* @__PURE__ */ React.createElement("b", null, "publishable"), " key instead, and revoke that secret key now."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 10 } }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "btn ghost sm",
+        disabled: true,
+        title: "Needs a signed-in account",
+        style: { opacity: 0.45, cursor: "not-allowed" }
+      },
+      "Sync to Supabase \u2191"
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "btn ghost sm",
+        disabled: true,
+        title: "Needs a signed-in account",
+        style: { opacity: 0.45, cursor: "not-allowed" }
+      },
+      "Load from Supabase \u2193"
+    )), /* @__PURE__ */ React.createElement("div", { style: {
+      background: "#F5F9FE",
+      border: "1px solid #C8DCF5",
+      color: "#3D4F66",
+      borderRadius: 7,
+      padding: "10px 13px",
+      fontSize: 12.5,
+      lineHeight: 1.6,
+      marginBottom: 16
+    } }, /* @__PURE__ */ React.createElement("b", null, "Sync is not switched on yet."), " Saving contracts to the cloud needs a real signed-in account, which arrives with Supabase Auth. Your work lives in this browser for now.", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("b", null, "You do not need it for AI analysis."), " The URL and key above are what the app uses to reach your AI function \u2014 that works on its own."), /* @__PURE__ */ React.createElement("h2", { style: { fontSize: 18, marginTop: 4 } }, "Playbook Playground"), ED.playbook ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "mh", style: { marginBottom: 10 } }, "Your organisation's own vetting rules. Every analysis grades contracts against these positions \u2014 deviations lower the health score and risk grade."), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement(
       "textarea",
       {
         rows: 4,
