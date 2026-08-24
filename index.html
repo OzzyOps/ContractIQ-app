@@ -401,8 +401,10 @@
     <div class="sec-head"><svg class="hexmark" width="44" height="44" viewBox="0 0 100 100" aria-hidden="true">
 <defs><linearGradient id="hxg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b71c1"/><stop offset="1" stop-color="#5fa0e0"/></linearGradient></defs>
 <path d="M50 4 L92 27 L92 73 L50 96 L8 73 L8 27 Z" fill="none" stroke="url(#hxg)" stroke-width="6"/>
-<path d="M32 38 h36 M32 50 h36 M32 62 h22" stroke="url(#hxg)" stroke-width="6" stroke-linecap="round"/></svg><div class="k">Founding customers</div><h2>The first 20 accounts get it for life.</h2><p class="s">Your Growth price locked for life, a direct line to the founder, and your say in the roadmap. When the 20 places are gone, they're gone.</p></div>
-    <a class="btn pri" href="pricing.html">Claim a founding place</a>
+<path d="M32 38 h36 M32 50 h36 M32 62 h22" stroke="url(#hxg)" stroke-width="6" stroke-linecap="round"/></svg><div class="k">Founding customers</div><h2 id="founding-head">First 10 sign-ups get 200 free credits a month for six months.</h2><p class="s" id="founding-body">Enough for roughly twenty contract analyses a month, at no cost, while you decide whether this earns its place. After six months your account continues on Growth / Professional at &pound;79 a month. A direct line to the founder and a say in the roadmap come as standard. Ten places, then it closes.</p><p class="s" id="founding-terms" style="font-size:13.5px;opacity:.78;margin-top:14px;">The founding offer runs for a minimum term of six months. You can cancel at any point from the six-month anniversary onwards, and we'll remind you before it converts &mdash; no automatic charge without notice.</p></div>
+    <a class="btn pri" id="founding-cta" href="pricing.html" style="display:none">Claim one of the ten places</a>
+    <a class="btn pri" id="founding-fallback" href="pricing.html">See plans</a>
+    <div id="founding-count" style="margin-top:16px;font-size:13.5px;font-weight:600;color:var(--grey);min-height:20px"></div>
   </div>
 </section>
 <script>
@@ -444,6 +446,81 @@ setTimeout(function(){
   var h=document.querySelectorAll('.reveal:not(.is-in)');
   for(var i=0;i<h.length;i++) h[i].classList.add('is-in');
 }, 2600);
+</script>
+
+<script>
+/* ── Founding places counter ──────────────────────────────────
+   The number of places left is read from the database, not baked
+   into this page — otherwise the site would keep advertising ten
+   places after they had gone.
+
+   Three states, and the failure case matters:
+     places left  → show the offer with the live number
+     none left    → say so plainly, and point at the normal plans
+     cannot read  → show a neutral "See plans" and claim nothing
+
+   The last one is deliberate. If Supabase is unreachable we do not
+   know how many places remain, and inventing a number would be a
+   lie in whichever direction we guessed. */
+(function () {
+  // Fill these in from Supabase → Project Settings. The publishable
+  // key is designed to be public; this call returns only a count.
+  var SUPABASE_URL = '';                  // https://xxxx.supabase.co
+  var SUPABASE_PUBLISHABLE_KEY = '';      // sb_publishable_…
+
+  var cta   = document.getElementById('founding-cta');
+  var fall  = document.getElementById('founding-fallback');
+  var count = document.getElementById('founding-count');
+  var head  = document.getElementById('founding-head');
+  var body  = document.getElementById('founding-body');
+  if (!cta || !fall) return;
+
+  function offerOpen(n) {
+    cta.style.display = '';
+    fall.style.display = 'none';
+    count.textContent = n === 1
+      ? 'One place left.'
+      : n + ' of 10 places still open.';
+  }
+
+  function offerClosed() {
+    cta.style.display = 'none';
+    fall.style.display = '';
+    fall.textContent = 'See plans';
+    var terms = document.getElementById('founding-terms');
+    if (terms) terms.style.display = 'none';
+    if (head) head.textContent = 'The ten founding places have gone.';
+    if (body) body.textContent = 'Thank you to everyone who took one. ContractIQ is still free to '
+      + 'evaluate on the Sandbox plan, with no card required — and Growth / Professional is '
+      + '\u00a379 a month whenever you are ready.';
+    count.textContent = '';
+  }
+
+  function unknown() {          // cannot reach the database
+    cta.style.display = 'none';
+    fall.style.display = '';
+    count.textContent = '';
+  }
+
+  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) { unknown(); return; }
+
+  fetch(SUPABASE_URL.replace(/\/+$/, '') + '/rest/v1/rpc/founding_places_remaining', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_PUBLISHABLE_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_PUBLISHABLE_KEY
+    },
+    body: '{}'
+  })
+    .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+    .then(function (n) {
+      n = Number(n);
+      if (!isFinite(n)) return unknown();
+      if (n > 0) offerOpen(n); else offerClosed();
+    })
+    .catch(unknown);
+})();
 </script>
 </body>
 </html>

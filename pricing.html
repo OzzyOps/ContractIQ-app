@@ -280,8 +280,8 @@
 </header>
 <section>
   <div class="wrap">
-    <div style="background:linear-gradient(135deg,var(--blue-500),var(--blue-400));color:#fff;padding:18px 26px;text-align:center;font-weight:600;font-size:15px;margin-bottom:34px;">
-      <b>Founding customer offer</b> — the first 20 accounts lock the Growth price for life and get a direct line to the founder.
+    <div id="founding-banner" style="background:linear-gradient(135deg,var(--blue),var(--blue-light));color:#fff;padding:20px 26px;text-align:center;font-weight:600;font-size:15px;margin-bottom:34px;border-radius:10px;">
+      <span id="fo-text"><b>Founding customer offer</b> &mdash; the first <b>10 sign-ups</b> get <b>200 free credits a month for six months</b>, then continue on Growth / Professional at &pound;79 a month.</span><div style="font-weight:500;font-size:13px;opacity:.9;margin-top:8px;">Minimum term six months. Cancel any time from the six-month anniversary onwards &mdash; we'll remind you before it converts.</div>
     </div>
     <div class="plans">
       <div class="plan">
@@ -378,6 +378,47 @@ setTimeout(function(){
   var h=document.querySelectorAll('.reveal:not(.is-in)');
   for(var i=0;i<h.length;i++) h[i].classList.add('is-in');
 }, 2600);
+</script>
+
+<script>
+/* Founding banner — same live count as the homepage. Hidden entirely
+   when the places have gone, so the pricing page never advertises an
+   offer that no longer exists. Hidden too if the count cannot be read,
+   because a wrong claim here is worse than no claim. */
+(function () {
+  var SUPABASE_URL = '';                  // https://xxxx.supabase.co
+  var SUPABASE_PUBLISHABLE_KEY = '';      // sb_publishable_…
+
+  var banner = document.getElementById('founding-banner');
+  var text   = document.getElementById('fo-text');
+  if (!banner) return;
+  banner.style.display = 'none';          // stays hidden until confirmed open
+
+  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) return;
+
+  fetch(SUPABASE_URL.replace(/\/+$/, '') + '/rest/v1/rpc/founding_places_remaining', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_PUBLISHABLE_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_PUBLISHABLE_KEY
+    },
+    body: '{}'
+  })
+    .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+    .then(function (n) {
+      n = Number(n);
+      if (isFinite(n) && n > 0) {
+        if (text) {
+          text.innerHTML = '<b>Founding customer offer</b> &mdash; <b>' + n +
+            (n === 1 ? ' place' : ' places') + ' left</b> of ten. 200 free credits a month for six ' +
+            'months, then Growth / Professional at \u00a379 a month.';
+        }
+        banner.style.display = '';
+      }
+    })
+    .catch(function () { /* stays hidden */ });
+})();
 </script>
 </body>
 </html>
