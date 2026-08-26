@@ -80,7 +80,10 @@ serve(async (req) => {
     }
     const payload = {
       model: MODEL,
-      max_tokens: Math.min(Number(body.max_tokens) || 2000, 4000),
+      // Ceiling raised from 4,000. A full contract analysis routinely needs
+      // 5-7k output tokens; capping at 4,000 truncated the JSON mid-object
+      // after ~45 seconds of generation, which surfaced as an opaque failure.
+      max_tokens: Math.min(Number(body.max_tokens) || 2000, 16000),
       ...(body.system ? { system: String(body.system) } : {}),
       messages,
     };

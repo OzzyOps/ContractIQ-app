@@ -1050,6 +1050,8 @@ setTimeout(function(){
   .pill { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 100px; padding: 4px 11px; margin-top: 14px; letter-spacing: 0.02em; }
   .pill.ok { background: #E4F8F0; color: #14805E; }
   .pill.warn { background: #FFF2E0; color: #A85A00; }
+
+  .pill.teal { background: #E4F8F4; color: #12796B; }
   .pill.risk { background: #FDE9E7; color: #B23A31; }
   .pill.blue { background: #E5F0FD; color: #1D5FB8; }
   .btn {
@@ -1173,7 +1175,14 @@ setTimeout(function(){
   const daysTo = (d) => d ? Math.round((new Date(d) - /* @__PURE__ */ new Date()) / 864e5) : null;
   const renewalPill = (ct) => {
     const d = daysTo(ct.endDate);
-    if (d == null) return /* @__PURE__ */ React.createElement("span", { className: "pill blue" }, "Awaiting ingestion");
+    if (d == null) {
+      const docs = (ct.documents || []).filter((x) => !x.purged);
+      const readable = docs.filter((x) => x.text && x.text.trim().length > 40);
+      if (!docs.length) return /* @__PURE__ */ React.createElement("span", { className: "pill blue" }, "Awaiting documents");
+      if (!readable.length) return /* @__PURE__ */ React.createElement("span", { className: "pill warn" }, docs.length, " file", docs.length === 1 ? "" : "s", " \xB7 needs OCR");
+      if (!ct.analysis) return /* @__PURE__ */ React.createElement("span", { className: "pill teal" }, readable.length, " file", readable.length === 1 ? "" : "s", " ready to analyse");
+      return /* @__PURE__ */ React.createElement("span", { className: "pill blue" }, "Analysed \xB7 no end date found");
+    }
     if (d < 0) return /* @__PURE__ */ React.createElement("span", { className: "pill risk" }, "Expired");
     if (d <= 180) return /* @__PURE__ */ React.createElement("span", { className: "pill warn" }, "Renews in ", d, " days");
     return /* @__PURE__ */ React.createElement("span", { className: "pill ok" }, "Active \xB7 ", Math.round(d / 30), " mo left");
@@ -1484,7 +1493,101 @@ Only put values in "extracted" that are stated in or directly inferable from the
     return Array.from(new Uint8Array(buf)).slice(0, 8).map((b) => b.toString(16).padStart(2, "0")).join("");
   }
   const buildAnalysisPrompt = (contract, customPlaybook, policyPacks) => analysisPromptFor(contract, customPlaybook, policyPacks);
+  function explainAiFailure(status, detail) {
+    const d = (detail || "").toLowerCase();
+    if (status === 401 || status === 403) {
+      if (d.includes("origin")) return "Your AI function rejected this site. The ALLOWED_ORIGIN secret in Supabase must exactly match this app's address \u2014 https:// and the domain only, no folder and no trailing slash.";
+      return "The AI function refused the request. In Supabase, open the anthropic-proxy function and turn OFF 'Verify JWT'.";
+    }
+    if (status === 429) return detail || "Rate limit reached. This is the hourly cap you set in Supabase, not an Anthropic limit.";
+    if (status === 500) {
+      if (d.includes("missing") || d.includes("api_key") || d.includes("anthropic_api_key"))
+        return "Your API key is not reaching the function. In Supabase \u2192 Edge Functions \u2192 Secrets, check ANTHROPIC_API_KEY is spelled exactly that way and holds the full sk-ant-\u2026 key.";
+      if (d.includes("credit") || d.includes("balance"))
+        return "Your Anthropic account is out of credit. Top up at console.anthropic.com.";
+      return "The AI function failed. Check Supabase \u2192 Edge Functions \u2192 anthropic-proxy \u2192 Logs for the reason." + (detail ? ` (${detail})` : "");
+    }
+    if (status === 502) return "The AI function could not reach Anthropic. Usually temporary \u2014 try again in a moment.";
+    if (status === 529 || d.includes("overloaded")) return "Anthropic is busy right now. Wait a minute and try again \u2014 nothing is wrong with your setup.";
+    if (status === 400 && d.includes("credit")) return "Your Anthropic account is out of credit. Top up at console.anthropic.com.";
+    return `The AI request failed (HTTP ${status})${detail ? ` \u2014 ${detail}` : ""}.`;
+  }
+  function normaliseAnalysis(a) {
+    var _a, _b, _c, _d, _e, _f, _g, _h;
+    const o = (v) => v && typeof v === "object" && !Array.isArray(v) ? v : {};
+    const arr = (v) => Array.isArray(v) ? v : [];
+    const r = { ...o(a) };
+    r.extracted = o(r.extracted);
+    r.dataPoints = arr(r.dataPoints);
+    r.risks = arr(r.risks);
+    r.opportunities = arr(r.opportunities);
+    r.obligations = arr(r.obligations);
+    r.cost = o(r.cost);
+    r.cost.lineItems = arr(r.cost.lineItems);
+    r.cost.breakdown = arr(r.cost.breakdown);
+    r.cost.summary = (_a = r.cost.summary) != null ? _a : "";
+    r.cost.estimatedAnnualSaving = (_b = r.cost.estimatedAnnualSaving) != null ? _b : null;
+    r.users = o(r.users);
+    r.users.breakdown = arr(r.users.breakdown);
+    r.users.points = arr(r.users.points);
+    r.users.summary = (_c = r.users.summary) != null ? _c : "";
+    r.compliance = o(r.compliance);
+    r.compliance.clauses = arr(r.compliance.clauses);
+    r.compliance.regulatory = arr(r.compliance.regulatory);
+    r.compliance.summary = (_d = r.compliance.summary) != null ? _d : "";
+    r.knowledge = o(r.knowledge);
+    r.knowledge.points = arr(r.knowledge.points);
+    r.knowledge.verbalCommitments = arr(r.knowledge.verbalCommitments);
+    r.knowledge.keyPeople = arr(r.knowledge.keyPeople);
+    r.knowledge.openQuestions = arr(r.knowledge.openQuestions);
+    r.knowledge.keyPersonRisk = Array.isArray(r.knowledge.keyPersonRisk) ? r.knowledge.keyPersonRisk : r.knowledge.keyPersonRisk ? [r.knowledge.keyPersonRisk] : [];
+    r.knowledge.summary = (_e = r.knowledge.summary) != null ? _e : "";
+    r.insights = o(r.insights);
+    r.insights.negotiationLevers = arr(r.insights.negotiationLevers);
+    r.insights.recommendations = arr(r.insights.recommendations);
+    r.insights.benchmarks = arr(r.insights.benchmarks);
+    r.insights.watchDates = arr(r.insights.watchDates);
+    r.insights.summary = (_f = r.insights.summary) != null ? _f : "";
+    r.execSummary = (_g = r.execSummary) != null ? _g : "";
+    r.healthScore = Number.isFinite(r.healthScore) ? r.healthScore : null;
+    r.riskGrade = (_h = r.riskGrade) != null ? _h : null;
+    const mirror = (tmpl, target) => {
+      for (const k of Object.keys(tmpl || {})) {
+        const tv = tmpl[k];
+        if (Array.isArray(tv)) {
+          if (!Array.isArray(target[k])) target[k] = [];
+        } else if (tv && typeof tv === "object") {
+          if (!target[k] || typeof target[k] !== "object" || Array.isArray(target[k])) target[k] = {};
+          mirror(tv, target[k]);
+        }
+      }
+    };
+    try {
+      mirror(SAMPLE_ANALYSIS, r);
+    } catch (e) {
+    }
+    return r;
+  }
+  function parseAnalysisJson(raw) {
+    let t = String(raw).trim();
+    t = t.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+    const first = t.indexOf("{");
+    const last = t.lastIndexOf("}");
+    if (first > 0 || last > -1 && last < t.length - 1) {
+      if (first > -1 && last > first) t = t.slice(first, last + 1);
+    }
+    try {
+      return normaliseAnalysis(JSON.parse(t));
+    } catch (e) {
+    }
+    try {
+      return normaliseAnalysis(JSON.parse(t.replace(/,\s*([}\]])/g, "$1")));
+    } catch (e) {
+    }
+    throw new Error("The AI's response was not valid JSON, so the analysis could not be read. This is usually a one-off \u2014 running it again normally works.");
+  }
   async function runAnalysis(contract, customPlaybook, policyPacks) {
+    var _a;
     if (DEMO_MODE) {
       await new Promise((r) => setTimeout(r, 1600));
       const sample = JSON.parse(JSON.stringify(SAMPLE_ANALYSIS));
@@ -1526,14 +1629,26 @@ Only put values in "extracted" that are stated in or directly inferable from the
       method: "POST",
       headers: aiHeaders(),
       body: JSON.stringify({
-        max_tokens: 3e3,
+        max_tokens: 8e3,
         messages: [{ role: "user", content: prompt }]
       })
     });
-    if (!res.ok) throw new Error(`Analysis API ${res.status}`);
+    if (!res.ok) {
+      let detail = "";
+      try {
+        const err = await res.json();
+        detail = ((_a = err == null ? void 0 : err.error) == null ? void 0 : _a.message) || (err == null ? void 0 : err.error) || (err == null ? void 0 : err.detail) || "";
+      } catch (e) {
+      }
+      throw new Error(explainAiFailure(res.status, String(detail)));
+    }
     const data = await res.json();
+    if ((data == null ? void 0 : data.stop_reason) === "max_tokens") {
+      throw new Error("The analysis was cut short \u2014 this contract set produced more output than the limit allows. Try again, or split very large document sets across two records.");
+    }
     const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
-    return JSON.parse(text.replace(/```json|```/g, "").trim());
+    if (!text.trim()) throw new Error("The AI returned an empty response. Try again in a moment.");
+    return parseAnalysisJson(text);
   }
   async function askCedric(question, history, contract) {
     if (DEMO_MODE) {
@@ -1979,6 +2094,8 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
     const [intelOpen, setIntelOpen] = useState(false);
     const intelRef = useRef(null);
     const [pwShown, setPwShown] = useState({});
+    const [analysisStage, setAnalysisStage] = useState(null);
+    const [analysisError, setAnalysisError] = useState(null);
     const [otp, setOtp] = useState(["", "", "", "", "", ""]);
     const [otpErr, setOtpErr] = useState(false);
     const [cedricBusy, setCedricBusy] = useState(false);
@@ -2201,7 +2318,7 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
         p_account_id: accountId,
         p_contract_id: contract.id,
         p_kind: kind || "analysis",
-        p_payload: { prompt: buildAnalysisPrompt(contract, playbook, policyPacks), max_tokens: 3e3 },
+        p_payload: { prompt: buildAnalysisPrompt(contract, playbook, policyPacks), max_tokens: 8e3 },
         p_idempotency: idem
       });
       if (error) throw new Error(error.message);
@@ -3129,8 +3246,30 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
       }
       setAnalyzing(true);
       const t0 = Date.now();
+      const STAGES = [
+        [0, 8, "Reading your documents"],
+        [3, 22, "Extracting terms and dates"],
+        [10, 45, "Checking clauses against your playbook"],
+        [22, 65, "Scoring risk and confidence"],
+        [35, 80, "Finding savings and obligations"],
+        [50, 90, "Writing up the analysis"]
+      ];
+      setAnalysisError(null);
+      setAnalysisStage({ pct: 4, label: "Starting up" });
+      const ticker = setInterval(() => {
+        const secs = (Date.now() - t0) / 1e3;
+        let cur = STAGES[0];
+        for (const st of STAGES) if (secs >= st[0]) cur = st;
+        const next = STAGES[STAGES.indexOf(cur) + 1];
+        const span = next ? next[1] - cur[1] : 4;
+        const dur = next ? next[0] - cur[0] : 25;
+        const into = Math.min(1, (secs - cur[0]) / Math.max(dur, 1));
+        setAnalysisStage({ pct: Math.min(93, Math.round(cur[1] + span * into)), label: cur[2] });
+      }, 400);
       try {
         const a = await runAnalysis(selected, playbook, policyPacks);
+        clearInterval(ticker);
+        setAnalysisStage({ pct: 100, label: "Done" });
         const ex = a.extracted || {};
         const patch = { analysis: a };
         const dpFor = (k) => (a.dataPoints || []).find((d) => d.field === k && d.kind === "extraction");
@@ -3147,11 +3286,15 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
         notify(zr ? "Analysis complete \u2014 document text purged (Zero-Retention)" : revision ? `Revision complete \u2014 no audit consumed (${ED.revisionDays}-day revision window)` : `Analysis complete \u2014 ${CREDIT_COST.analysis} credits used, ${Math.max(0, creditsLeft - CREDIT_COST.analysis)} remaining`);
         setTelemetry((t) => [...t.slice(-49), { ts: Date.now(), op: "analysis", ms: Date.now() - t0, ok: true, contractId: selected.id, points: (a.dataPoints || []).length }]);
       } catch (e) {
+        clearInterval(ticker);
         setTelemetry((t) => [...t.slice(-49), { ts: Date.now(), op: "analysis", ms: Date.now() - t0, ok: false, contractId: selected.id }]);
         const msg = String((e == null ? void 0 : e.message) || e);
-        notify(msg.includes("No AI endpoint") ? "No AI endpoint configured \u2014 add your Supabase URL and anon key in Settings" : msg.includes("401") || msg.includes("403") ? "AI endpoint rejected the request \u2014 check the anon key and ALLOWED_ORIGIN" : msg.includes("429") ? "Rate limit reached on your AI proxy \u2014 wait an hour or raise MAX_CALLS_PER_HOUR" : `Analysis failed \u2014 ${msg.slice(0, 90)}`);
+        setAnalysisError(msg);
+        notify(msg.length > 120 ? msg.slice(0, 117) + "\u2026" : msg);
         console.error(e);
       }
+      clearInterval(ticker);
+      setAnalysisStage(null);
       setAnalyzing(false);
     };
     const verifyPoint = (field, action, newValue) => {
@@ -3863,6 +4006,7 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
       openVerifications(selected.analysis).length,
       " to verify"
     ), selected.analysis && openVerifications(selected.analysis).length === 0 && ((_b = selected.analysis.dataPoints) == null ? void 0 : _b.length) > 0 && /* @__PURE__ */ React.createElement("span", { className: "pill ok", style: { cursor: "pointer" }, onClick: () => setTab("Verify") }, "Verified"), selected.autoRenew && /* @__PURE__ */ React.createElement("span", { className: "pill warn" }, "Auto-renews \xB7 ", selected.noticePeriodDays || "?", "-day notice"), (() => {
+      var _a2;
       const readyToAnalyse = !selected.analysis && (selected.documents || []).some((d) => d.text && !d.purged);
       return /* @__PURE__ */ React.createElement(
         "button",
@@ -3879,7 +4023,7 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
           title: readyToAnalyse ? "Documents are ingested and ready \u2014 run the analysis" : void 0
         },
         analyzing && /* @__PURE__ */ React.createElement("span", { className: "spin" }),
-        analyzing ? "Analysing\u2026" : selected.analysis ? "Re-run AI analysis" : "Run AI analysis"
+        analyzing ? `Analysing\u2026 ${(_a2 = analysisStage == null ? void 0 : analysisStage.pct) != null ? _a2 : 0}%` : selected.analysis ? "Re-run AI analysis" : "Run AI analysis"
       );
     })(), currentUser.role === "Admin" && /* @__PURE__ */ React.createElement("button", { className: "btn ghost sm", style: { color: "#c0271d", borderColor: "rgba(192,39,29,0.4)" }, onClick: () => {
       if (window.confirm(`Permanently delete ${selected.ref} (${selected.supplier}) and all its documents and analysis? This cannot be undone.`)) {
@@ -3887,7 +4031,20 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
         setSelectedId(null);
         notify("Contract Record and all associated data deleted");
       }
-    } }, "Delete record"))), /* @__PURE__ */ React.createElement("div", { className: "seg" }, TABS.map((t) => /* @__PURE__ */ React.createElement("button", { key: t, className: tab === t ? "on" : "", onClick: () => setTab(t) }, t))), tab === "Overview" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "panel" }, /* @__PURE__ */ React.createElement("h4", null, "Record details ", selected.analysis ? /* @__PURE__ */ React.createElement("span", { className: "pill blue", style: { marginTop: 0, marginLeft: 8 } }, "Extracted from documents") : /* @__PURE__ */ React.createElement("span", { className: "pill blue", style: { marginTop: 0, marginLeft: 8 } }, "Populates on ingestion + analysis")), /* @__PURE__ */ React.createElement("div", { className: "kv" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "Term"), /* @__PURE__ */ React.createElement("div", { className: "x" }, selected.startDate || "\u2014", " \u2192 ", selected.endDate || "\u2014")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "Notice period"), /* @__PURE__ */ React.createElement("div", { className: "x" }, selected.noticePeriodDays ? `${selected.noticePeriodDays} days` : "\u2014")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "Auto-renew"), /* @__PURE__ */ React.createElement("div", { className: "x" }, selected.autoRenew == null ? "\u2014" : selected.autoRenew ? "Yes" : "No")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "Users"), /* @__PURE__ */ React.createElement("div", { className: "x" }, selected.users != null ? selected.users.toLocaleString() : "\u2014")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "Owner"), /* @__PURE__ */ React.createElement("div", { className: "x" }, selected.owner || "\u2014")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "Documents"), /* @__PURE__ */ React.createElement("div", { className: "x" }, selected.documents.length))), selected.notes && /* @__PURE__ */ React.createElement("p", { style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("b", null, "Notes:"), " ", selected.notes)), selected.analysis ? /* @__PURE__ */ React.createElement("div", { className: "panel" }, /* @__PURE__ */ React.createElement("h4", null, "Executive summary \xB7 Health score ", selected.analysis.healthScore, "/100"), /* @__PURE__ */ React.createElement("p", null, selected.analysis.execSummary)) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "No analysis yet"), /* @__PURE__ */ React.createElement("p", null, "Ingest this contract's documents, then run AI analysis \u2014 details, Cost, Users, Risk, Opportunities and Insights all populate from what's ingested."))), tab === "Verify" && (selected.analysis ? (() => {
+    } }, "Delete record")), analyzing && analysisStage && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16, maxWidth: 560 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 7 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: "#16283E" } }, analysisStage.label, "\u2026"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: "#2F7BD9" } }, analysisStage.pct, "%")), /* @__PURE__ */ React.createElement("div", { style: { height: 7, background: "#EEF3FA", borderRadius: 4, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: {
+      height: "100%",
+      width: `${analysisStage.pct}%`,
+      borderRadius: 4,
+      background: "linear-gradient(90deg,#2F7BD9,#5FA8F5)",
+      transition: "width .45s ease"
+    } })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: "#7A8DA6", marginTop: 7 } }, "Reading ", (selected.documents || []).filter((d) => d.text && !d.purged).length, " document(s). This usually takes 30 to 60 seconds \u2014 you can leave this page open.")), !analyzing && analysisError && /* @__PURE__ */ React.createElement("div", { style: {
+      marginTop: 16,
+      maxWidth: 700,
+      background: "#FDEEEC",
+      border: "1px solid #F0C4BF",
+      borderRadius: 8,
+      padding: "13px 16px"
+    } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, fontWeight: 700, color: "#B23A31", marginBottom: 5 } }, "That analysis did not complete"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "#3D4F66", lineHeight: 1.6 } }, analysisError), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10, display: "flex", gap: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "btn sm", onClick: analyse }, "Try again"), /* @__PURE__ */ React.createElement("button", { className: "btn ghost sm", onClick: () => setAnalysisError(null) }, "Dismiss")))), /* @__PURE__ */ React.createElement("div", { className: "seg" }, TABS.map((t) => /* @__PURE__ */ React.createElement("button", { key: t, className: tab === t ? "on" : "", onClick: () => setTab(t) }, t))), tab === "Overview" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "panel" }, /* @__PURE__ */ React.createElement("h4", null, "Record details ", selected.analysis ? /* @__PURE__ */ React.createElement("span", { className: "pill blue", style: { marginTop: 0, marginLeft: 8 } }, "Extracted from documents") : /* @__PURE__ */ React.createElement("span", { className: "pill blue", style: { marginTop: 0, marginLeft: 8 } }, "Populates on ingestion + analysis")), /* @__PURE__ */ React.createElement("div", { className: "kv" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "Term"), /* @__PURE__ */ React.createElement("div", { className: "x" }, selected.startDate || "\u2014", " \u2192 ", selected.endDate || "\u2014")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "Notice period"), /* @__PURE__ */ React.createElement("div", { className: "x" }, selected.noticePeriodDays ? `${selected.noticePeriodDays} days` : "\u2014")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "Auto-renew"), /* @__PURE__ */ React.createElement("div", { className: "x" }, selected.autoRenew == null ? "\u2014" : selected.autoRenew ? "Yes" : "No")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "Users"), /* @__PURE__ */ React.createElement("div", { className: "x" }, selected.users != null ? selected.users.toLocaleString() : "\u2014")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "Owner"), /* @__PURE__ */ React.createElement("div", { className: "x" }, selected.owner || "\u2014")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "Documents"), /* @__PURE__ */ React.createElement("div", { className: "x" }, selected.documents.length))), selected.notes && /* @__PURE__ */ React.createElement("p", { style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("b", null, "Notes:"), " ", selected.notes)), selected.analysis ? /* @__PURE__ */ React.createElement("div", { className: "panel" }, /* @__PURE__ */ React.createElement("h4", null, "Executive summary \xB7 Health score ", selected.analysis.healthScore, "/100"), /* @__PURE__ */ React.createElement("p", null, selected.analysis.execSummary)) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "No analysis yet"), /* @__PURE__ */ React.createElement("p", null, "Ingest this contract's documents, then run AI analysis \u2014 details, Cost, Users, Risk, Opportunities and Insights all populate from what's ingested."))), tab === "Verify" && (selected.analysis ? (() => {
       const dps = selected.analysis.dataPoints || [];
       const posture = accuracyPosture(selected.analysis);
       const groups = [

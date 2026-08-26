@@ -139,7 +139,7 @@ async function processJob(job: Record<string, any>) {
   });
 
   const messages = p.messages ?? [{ role: "user", content: p.prompt }];
-  const data = await callAnthropic(p.system, messages, Math.min(p.max_tokens ?? 3000, 4000));
+  const data = await callAnthropic(p.system, messages, Math.min(p.max_tokens ?? 8000, 16000));
 
   await db.rpc("report_job_progress", {
     p_job_id: job.id, p_progress: 80, p_note: "Scoring and checking",
