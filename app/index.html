@@ -667,12 +667,6 @@ setTimeout(function(){
       ]
     }
   ];
-  const activePolicyBlock = (packs) => {
-    const on = (packs || []).filter((p) => p.active);
-    if (!on.length) return "";
-    return "\n\nREGULATORY POLICY PACKS IN FORCE (assess the contract against every rule below; each becomes a compliance data point with its own confidence score):\n" + on.map((p) => `[${p.jurisdiction} \xB7 ${p.name} v${p.version}]
-` + p.rules.map((r) => `  - ${r}`).join("\n")).join("\n") + "\n";
-  };
   const HIL_TIERS = {
     deep: {
       key: "deep",
@@ -1403,90 +1397,116 @@ ${d.text || "(binary file \u2014 metadata only)"}`;
     }
     return best;
   }
-  function analysisPromptFor(contract, customPlaybook, policyPacks) {
+  function analysisContextFor(contract, customPlaybook, policyPacks) {
     const playbookBlock = ED.playbook && (customPlaybook == null ? void 0 : customPlaybook.trim()) ? `
 
-CUSTOM PLAYBOOK \u2014 this organisation's own vetting rules. Grade the contract against THESE positions as well as standard practice; deviations from the playbook must lower healthScore and riskGrade and appear in compliance/risks:
-${customPlaybook.trim()}
-` : "";
-    const depthBlock = ED.crossClause ? `
+CUSTOM PLAYBOOK \u2014 this organisation's own vetting rules. Grade the contract against THESE positions; every deviation is a finding:
+${customPlaybook.trim()}` : "";
+    const packs = (policyPacks || []).filter((p) => p.on);
+    const policyBlock = packs.length ? `
 
-ADVANCED CROSS-CLAUSE ANALYSIS (enabled): Read every ingested document AGAINST the others, not in isolation. Actively hunt for: purchase orders or invoices exceeding a Statement of Work cap; rate cards, payment terms, notice periods or dates that contradict between documents; indemnities or carve-outs that escape a liability cap; obligations in one document unsupported by another; and verbal commitments in meeting transcripts that contradict or are absent from the signed terms. Report each conflict explicitly in "risks" naming BOTH documents and the figures involved.
-` : `
-
-BASELINE CLAUSE CHECKING (Sandbox edition): Assess each document's own clauses and commercial terms. Do NOT attempt cross-document conflict reconciliation. Capture institutional knowledge from any transcripts, but do not cross-check verbal commitments against the written terms. If several documents are ingested and you notice they may conflict, add exactly one opportunity titled "Cross-document conflict review" noting that advanced cross-clause analysis is available on paid editions \u2014 do not detail the conflicts themselves.
-`;
-    const policyBlock = activePolicyBlock(policyPacks);
-    const prompt = `You are ContractIQ, an expert contract & commercial analyst helping enterprise stakeholders reduce cost ahead of negotiations.${playbookBlock}${depthBlock}${policyBlock}
-
-Analyse this Contract Record and respond ONLY with valid JSON (no markdown fences, no preamble).
-
-CONTRACT RECORD (may be sparse \u2014 details should be extracted from documents):
+REGULATORY POLICY PACKS IN FORCE:
+${packs.map((p) => `${p.name} (v${p.version}):
+${p.rules.map((r) => "  - " + r).join("\n")}`).join("\n\n")}` : "";
+    return `CONTRACT RECORD:
 ${JSON.stringify({ ...contract, documents: void 0, analysis: void 0 }, null, 2)}
 
 INGESTED DOCUMENTS:
-${clipContext(docContext(contract)) || "(none ingested yet \u2014 analyse from record details alone and flag what documents would improve the analysis)"}
+${clipContext(docContext(contract)) || "(none ingested yet \u2014 analyse from record details alone and flag what documents would improve the analysis)"}${playbookBlock}${policyBlock}
 
-Return JSON with exactly this shape:
+MEETING TRANSCRIPTS: any document marked "MEETING TRANSCRIPT" records what people said, not a contractual term. Mine it for history the paperwork omits, verbal assurances never written down, workarounds, and who holds which relationship. Attribute to the speaker. NEVER present something said in a meeting as a contractual obligation.
+
+CONFIDENCE SCORING \u2014 a safety mechanism, not a formality:
+ - 81-100 ONLY when stated explicitly and unambiguously and you can quote the phrase.
+ - 51-80 when stated but ambiguous, oddly formatted, spread across documents, or lightly inferred.
+ - 0-50 when inferred, contradicted between documents, taken from a transcript, or genuinely uncertain.
+Never score above 50 for anything from a transcript alone. When torn between two bands, choose the lower. A wrongly-high score sends a bad value straight into a commercial decision; under-confidence costs only a few seconds of checking.
+
+Return ONLY valid JSON. No prose before or after, no code fences. Keep every string tight \u2014 one or two sentences unless asked otherwise.`;
+  }
+  function stage1Prompt(contract, customPlaybook, policyPacks) {
+    return `You are ContractIQ, an expert contract and commercial analyst. Extract the facts of this contract.
+
+${analysisContextFor(contract, customPlaybook, policyPacks)}
+
+Return exactly this shape:
 {
   "extracted": {
-    "name": <contract title from docs, or null>,
-    "category": <one of "Software & SaaS","Managed Services","Hardware","Professional Services","Telecoms & Network","Facilities","Other", or null>,
-    "annualValue": <number or null>, "currency": <"GBP"|"USD"|"EUR"|"INR" or null>,
-    "startDate": <"YYYY-MM-DD" or null>, "endDate": <"YYYY-MM-DD" or null>,
-    "noticePeriodDays": <number or null>, "autoRenew": <true|false|null>,
-    "owner": <string or null>, "users": <number or null>
+    "name": <string|null>, "category": <string|null>, "annualValue": <number|null>,
+    "currency": <string|null>, "startDate": <"YYYY-MM-DD"|null>, "endDate": <"YYYY-MM-DD"|null>,
+    "noticePeriodDays": <number|null>, "autoRenew": <boolean|null>, "owner": <string|null>,
+    "users": <number|null>, "paymentTerms": <string|null>, "upliftMechanism": <string|null>
   },
   "dataPoints": [
-    {
-      "field": "<the data point, e.g. 'annualValue', 'endDate', 'noticePeriodDays', 'Limitation of liability', 'Auto-renewal risk'>",
-      "kind": "extraction|clause|risk|obligation",
-      "value": "<the extracted value or finding, as a short string>",
-      "confidence": <integer 0-100 \u2014 your honest confidence THIS SPECIFIC VALUE is correct>,
-      "reasoning": "<one sentence: why this confidence \u2014 what made it certain or doubtful>",
-      "sourceRef": "<the document name and the short quoted phrase you took it from, e.g. "MSA.pdf \u2014 'notice of not less than ninety (90) days'". If it was inferred rather than stated, say 'inferred: <basis>'. If absent from the documents, say 'not found in ingested documents'.>"
-    }
+    { "field": "<key from extracted>", "kind": "extraction", "value": "<value as text>",
+      "confidence": <0-100>, "reasoning": "<why this value, one sentence>",
+      "sourceRef": "<document + quoted phrase, or 'inferred: <basis>', or 'not found in ingested documents'>" }
   ],
+  "plainTerms": [ { "term": "<jargon or defined term>", "means": "<plain English, one sentence>" } ],
+  "execSummary": "<3-4 sentences: what this contract is, what it costs, when it ends, the single thing to watch>",
   "healthScore": <0-100 integer>,
-  "riskGrade": <"A"|"B"|"C"|"D"|"F" \u2014 instant overall risk grade, A = safe to approve, F = serious concerns>,
-  "execSummary": "<3-4 sentence executive summary>",
-  "compliance": {
-    "summary": "<paragraph on the contract's legal-compliance position from a review standpoint>",
-    "clauses": [{"clause": "<e.g. Limitation of liability, Indemnity, Termination for convenience, Data protection / UK GDPR, Audit rights, Anti-bribery (Bribery Act 2010), Modern Slavery Act statement, Insurance requirements, Exit assistance, SLA & service credits, Benchmarking clause, IP ownership, Confidentiality>", "status": "present|missing|unclear", "note": "<what it says / why its absence matters / suggested position>", "confidence": <0-100>, "sourceRef": "<document + quoted phrase, or 'not found in ingested documents'>"}],
-    "regulatory": ["<applicable regulatory or statutory consideration and whether the contract addresses it>", ...]
-  },
-  "obligations": [{"obligation": "<contractual commitment>", "owner": "us|supplier", "due": "<date, frequency or trigger>", "note": "<consequence if missed>"}],
-  "knowledge": {
-    "summary": "<paragraph on what the meeting transcripts add that the contract documents alone do not show \u2014 history, intent, working reality. If no transcripts were ingested, say so plainly and state what a recorded procurement or renewal meeting would add.>",
-    "points": [{"insight": "<what is now known>", "source": "<speaker name and meeting file, e.g. 'A. Whitfield, procurement review'>", "matters": "<why it matters commercially or legally>"}],
-    "verbalCommitments": [{"commitment": "<what was said to have been agreed or promised>", "saidBy": "<who>", "inContract": "yes|no|unclear", "action": "<what to do \u2014 e.g. paper it at renewal, request a side letter, verify>"}],
-    "keyPersonRisk": ["<knowledge that appears to sit with one named individual and is not written down anywhere \u2014 the thing lost if they leave>"],
-    "openQuestions": ["<question still unanswered that someone should be asked while they are still available>"]
-  },
+  "riskGrade": <"A"|"B"|"C"|"D"|"F">
+}
+Emit a dataPoints entry for EVERY non-null field in extracted. Use null where the documents do not say. Never take contract values or dates from a transcript alone.`;
+  }
+  function stage2Prompt(contract, customPlaybook, policyPacks) {
+    return `You are ContractIQ, an expert contract and commercial analyst. Assess the commercial position and the risk.
+
+${analysisContextFor(contract, customPlaybook, policyPacks)}
+
+Return exactly this shape:
+{
   "cost": {
-    "summary": "<paragraph on cost position, trajectory, benchmarks>",
-    "breakdown": [{"label": "<cost element>", "detail": "<1-2 sentences>"}],
-    "estimatedAnnualSaving": <number>
+    "summary": "<paragraph: current position, trajectory, how it compares to market>",
+    "breakdown": [ { "label": "<cost element>", "detail": "<1-2 sentences>" } ],
+    "estimatedAnnualSaving": <number|null>
   },
-  "users": { "summary": "<paragraph>", "points": ["<observation>", ...] },
-  "risks": [{"title": "<risk>", "severity": "high|medium|low", "detail": "<explanation + mitigation>", "confidence": <0-100>, "sourceRef": "<document + quoted phrase, or basis of inference>"}],
-  "opportunities": [{"title": "<opportunity>", "savingEstimate": "<e.g. '\xA385k/yr'>", "detail": "<how to realise it>"}],
+  "users": { "summary": "<paragraph on seats, licences or volume>", "points": ["<observation>"] },
+  "risks": [ { "title": "<risk>", "severity": "high|medium|low",
+    "detail": "<what it means and how to mitigate>", "confidence": <0-100>,
+    "sourceRef": "<document + quoted phrase, or basis of inference>" } ],
+  "opportunities": [ { "title": "<opportunity>", "savingEstimate": "<e.g. '\xA385k/yr'>",
+    "detail": "<how to realise it, and the leverage you have>" } ]
+}
+Be specific and commercially realistic. Prefer six sharp findings to twenty vague ones. If documents contradict each other on a figure, raise it as a risk rather than picking one.`;
+  }
+  function stage3Prompt(contract, customPlaybook, policyPacks) {
+    return `You are ContractIQ, an expert contract and commercial analyst. Cover compliance, obligations, institutional knowledge and the actions arising.
+
+${analysisContextFor(contract, customPlaybook, policyPacks)}
+
+Return exactly this shape:
+{
+  "compliance": {
+    "summary": "<paragraph>",
+    "clauses": [ { "clause": "<e.g. Liability cap>", "status": "present|missing|unclear",
+      "note": "<what it says, or what its absence exposes>" } ],
+    "regulatory": [ "<e.g. 'UK GDPR / DPA 2018: processing terms present; confirm records of processing are on file.' \u2014 one string per area, naming the area then the position>" ]
+  },
+  "obligations": [ { "obligation": "<what must be done>", "owner": "<us|supplier>",
+    "due": "<YYYY-MM-DD or a frequency such as 'quarterly'>",
+    "note": "<what happens if it is missed>" } ],
+  "knowledge": {
+    "summary": "<paragraph on undocumented context>",
+    "points": ["<insight, attributed to who said it and where>"],
+    "verbalCommitments": [ { "commitment": "<what was promised>", "saidBy": "<speaker and meeting>",
+      "inContract": "yes|no|unclear", "action": "<what to do about it>" } ],
+    "keyPeople": [ { "name": "<person>", "holds": "<what only they know>" } ],
+    "keyPersonRisk": ["<one string per person: what would be lost if they left>"],
+    "openQuestions": ["<question the documents do not answer>"]
+  },
   "insights": {
-    "negotiationLevers": ["<lever>", ...],
-    "recommendations": ["<action + timing>", ...],
-    "watchDates": ["<date/window + why>", ...]
+    "negotiationLevers": ["<lever>"],
+    "recommendations": ["<action + when to take it>"],
+    "watchDates": ["<date or window + why it matters>"],
+    "reviewStartDate": "<YYYY-MM-DD \u2014 when to BEGIN the renewal review, working back from the notice deadline>",
+    "reviewLeadTimeWeeks": <number>
   }
 }
-MEETING TRANSCRIPTS: any document marked "MEETING TRANSCRIPT" is a record of what people said, not a contractual term. Treat it as institutional knowledge and reported context. Mine it hard for: history the paperwork omits (past concessions, previous disputes, why a term exists), verbal assurances that never made it into writing, workarounds and known problems, who owns which relationship, and anything that only one person appears to know. Attribute insights to the speaker who said them. NEVER present something said in a meeting as if it were a contractual obligation \u2014 if a verbal commitment is not reflected in the contract documents, set inContract to "no" and recommend papering it. If no transcripts are present, still return the "knowledge" object with an empty points array and a summary saying so.
-
-CONFIDENCE SCORING \u2014 this is a safety mechanism, not a formality. Score every data point honestly and independently:
- - 81-100 ONLY when the value is stated explicitly and unambiguously in an ingested document and you can quote the phrase.
- - 51-80 when it is stated but ambiguous, formatted oddly, spread across documents, or requires light inference.
- - 0-50 when it is inferred, contradicted between documents, read from a transcript, or genuinely uncertain.
-Do NOT inflate confidence. A wrongly-high score sends an incorrect value straight into a commercial decision without human review, which is the most damaging failure this system can produce. Under-confidence merely costs a few seconds of checking. When torn between two bands, choose the lower one. Never score above 50 for anything taken only from a meeting transcript. Emit a dataPoints entry for every field in "extracted", every clause in compliance.clauses, and every risk.
-
-Only put values in "extracted" that are stated in or directly inferable from the documents; use null otherwise. Do not extract contract values, dates or terms from a transcript alone \u2014 spoken figures are unreliable; treat them as claims to verify. For "compliance", assess against standard UK enterprise contracting practice (UK GDPR / Data Protection Act 2018, Bribery Act 2010, Modern Slavery Act 2015 where relevant); mark clauses "unclear" if documents are insufficient to judge. Be specific, commercially sharp and realistic.`;
-    return prompt;
+Assess compliance against standard UK enterprise practice (UK GDPR / Data Protection Act 2018, Bribery Act 2010, Modern Slavery Act 2015 where relevant); mark "unclear" where documents are insufficient. If no transcripts are present, still return "knowledge" with empty arrays and a summary saying so. reviewStartDate must allow realistic time to benchmark, gather stakeholders and negotiate before the notice deadline falls.`;
+  }
+  function analysisPromptFor(contract, customPlaybook, policyPacks) {
+    return stage1Prompt(contract, customPlaybook, policyPacks);
   }
   async function sha256Short(s) {
     const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s || ""));
@@ -1551,6 +1571,23 @@ Only put values in "extracted" that are stated in or directly inferable from the
     r.execSummary = (_g = r.execSummary) != null ? _g : "";
     r.healthScore = Number.isFinite(r.healthScore) ? r.healthScore : null;
     r.riskGrade = (_h = r.riskGrade) != null ? _h : null;
+    if (Array.isArray(a == null ? void 0 : a.partial)) r.partial = a.partial;
+    const asText = (v) => {
+      if (v == null) return "";
+      if (typeof v === "string") return v;
+      if (typeof v !== "object") return String(v);
+      const vals = Object.entries(v).filter(([, x]) => x != null && x !== "").map(([k, x]) => k === "area" || k === "name" || k === "title" ? String(x) : String(x));
+      return vals.join(" \u2014 ");
+    };
+    const textArr = (v) => (Array.isArray(v) ? v : []).map(asText).filter(Boolean);
+    r.compliance.regulatory = textArr(r.compliance.regulatory);
+    r.knowledge.points = textArr(r.knowledge.points);
+    r.knowledge.keyPersonRisk = textArr(r.knowledge.keyPersonRisk);
+    r.knowledge.openQuestions = textArr(r.knowledge.openQuestions);
+    r.insights.negotiationLevers = textArr(r.insights.negotiationLevers);
+    r.insights.recommendations = textArr(r.insights.recommendations);
+    r.insights.watchDates = textArr(r.insights.watchDates);
+    r.users.points = textArr(r.users.points);
     const mirror = (tmpl, target) => {
       for (const k of Object.keys(tmpl || {})) {
         const tv = tmpl[k];
@@ -1568,29 +1605,26 @@ Only put values in "extracted" that are stated in or directly inferable from the
     }
     return r;
   }
-  function parseAnalysisJson(raw) {
+  function parseStageJson(raw) {
     let t = String(raw).trim();
     t = t.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
-    const first = t.indexOf("{");
-    const last = t.lastIndexOf("}");
-    if (first > 0 || last > -1 && last < t.length - 1) {
-      if (first > -1 && last > first) t = t.slice(first, last + 1);
-    }
+    const first = t.indexOf("{"), last = t.lastIndexOf("}");
+    if (first > -1 && last > first) t = t.slice(first, last + 1);
     try {
-      return normaliseAnalysis(JSON.parse(t));
+      return JSON.parse(t);
     } catch (e) {
     }
     try {
-      return normaliseAnalysis(JSON.parse(t.replace(/,\s*([}\]])/g, "$1")));
+      return JSON.parse(t.replace(/,\s*([}\]])/g, "$1"));
     } catch (e) {
     }
-    throw new Error("The AI's response was not valid JSON, so the analysis could not be read. This is usually a one-off \u2014 running it again normally works.");
+    throw new Error("the response was not valid JSON");
   }
-  async function runAnalysis(contract, customPlaybook, policyPacks) {
+  async function runAnalysis(contract, customPlaybook, policyPacks, onStage) {
     var _a;
     if (DEMO_MODE) {
       await new Promise((r) => setTimeout(r, 1600));
-      const sample = JSON.parse(JSON.stringify(SAMPLE_ANALYSIS));
+      const sample = normaliseAnalysis(JSON.parse(JSON.stringify(SAMPLE_ANALYSIS)));
       const own = {
         name: contract.name,
         category: contract.category,
@@ -1610,45 +1644,55 @@ Only put values in "extracted" that are stated in or directly inferable from the
       sample.dataPoints = (sample.dataPoints || []).map((dp) => own[dp.field] !== void 0 && own[dp.field] !== null && own[dp.field] !== "" ? { ...dp, value: String(own[dp.field]) } : dp);
       if (!ED.crossClause) {
         sample.risks = sample.risks.filter((r) => !/cross|conflict|purchase order|rate card/i.test(r.title + r.detail));
-        sample.opportunities = sample.opportunities.slice(0, 2).concat([{
-          title: "Cross-document conflict review",
-          savingEstimate: "Not assessed",
-          detail: "Several documents are ingested. Advanced cross-clause analysis \u2014 which reads purchase orders, SOWs and framework terms against each other to find cap breaches, rate-card mismatches and contradictory notice periods \u2014 is available on the Growth and Enterprise editions."
-        }]);
-        if (sample.knowledge) {
-          sample.knowledge.verbalCommitments = [];
-          sample.knowledge.summary += " Cross-checking verbal commitments against the signed terms is available on the Growth and Enterprise editions.";
-        }
-        sample.execSummary += " This Sandbox analysis covers each document's own clauses; cross-document conflict detection is available on paid editions.";
       }
       return sample;
     }
-    const prompt = analysisPromptFor(contract, customPlaybook, policyPacks);
     if (!AI_ENDPOINT) throw aiUnavailable();
-    const res = await fetch(AI_ENDPOINT, {
-      method: "POST",
-      headers: aiHeaders(),
-      body: JSON.stringify({
-        max_tokens: 8e3,
-        messages: [{ role: "user", content: prompt }]
-      })
-    });
-    if (!res.ok) {
-      let detail = "";
+    const stages = [
+      { n: 1, label: "Reading the contract and extracting terms", build: stage1Prompt, tokens: 6e3 },
+      { n: 2, label: "Assessing cost, risk and opportunities", build: stage2Prompt, tokens: 6e3 },
+      { n: 3, label: "Checking compliance, obligations and knowledge", build: stage3Prompt, tokens: 6e3 }
+    ];
+    const merged = {};
+    const failed = [];
+    for (const st of stages) {
+      if (onStage) onStage(st.n, stages.length, st.label);
       try {
-        const err = await res.json();
-        detail = ((_a = err == null ? void 0 : err.error) == null ? void 0 : _a.message) || (err == null ? void 0 : err.error) || (err == null ? void 0 : err.detail) || "";
+        const res = await fetch(AI_ENDPOINT, {
+          method: "POST",
+          headers: aiHeaders(),
+          body: JSON.stringify({
+            max_tokens: st.tokens,
+            messages: [{ role: "user", content: st.build(contract, customPlaybook, policyPacks) }]
+          })
+        });
+        if (!res.ok) {
+          let detail = "";
+          try {
+            const err = await res.json();
+            detail = ((_a = err == null ? void 0 : err.error) == null ? void 0 : _a.message) || (err == null ? void 0 : err.error) || (err == null ? void 0 : err.detail) || "";
+          } catch (e) {
+          }
+          throw new Error(explainAiFailure(res.status, String(detail)));
+        }
+        const data = await res.json();
+        if ((data == null ? void 0 : data.stop_reason) === "max_tokens") {
+          throw new Error(`Stage ${st.n} produced more output than the limit allows.`);
+        }
+        const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+        if (!text.trim()) throw new Error(`Stage ${st.n} returned an empty response.`);
+        Object.assign(merged, parseStageJson(text));
       } catch (e) {
+        failed.push({ stage: st.n, label: st.label, message: String((e == null ? void 0 : e.message) || e) });
+        if (st.n === 1) throw e;
+        console.error(`analysis stage ${st.n} failed`, e);
       }
-      throw new Error(explainAiFailure(res.status, String(detail)));
     }
-    const data = await res.json();
-    if ((data == null ? void 0 : data.stop_reason) === "max_tokens") {
-      throw new Error("The analysis was cut short \u2014 this contract set produced more output than the limit allows. Try again, or split very large document sets across two records.");
+    const out = normaliseAnalysis(merged);
+    if (failed.length) {
+      out.partial = failed.map((f) => `Stage ${f.stage} (${f.label}) did not complete: ${f.message}`);
     }
-    const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
-    if (!text.trim()) throw new Error("The AI returned an empty response. Try again in a moment.");
-    return parseAnalysisJson(text);
+    return out;
   }
   async function askCedric(question, history, contract) {
     if (DEMO_MODE) {
@@ -1995,7 +2039,7 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
     )));
   }
   function ContractIQ() {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
     const [accountUsers, setAccountUsers] = useState(seedUsers);
     const [currentUser, setCurrentUser] = useState(null);
     const [settingsLegal, setSettingsLegal] = useState(null);
@@ -3246,28 +3290,21 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
       }
       setAnalyzing(true);
       const t0 = Date.now();
-      const STAGES = [
-        [0, 8, "Reading your documents"],
-        [3, 22, "Extracting terms and dates"],
-        [10, 45, "Checking clauses against your playbook"],
-        [22, 65, "Scoring risk and confidence"],
-        [35, 80, "Finding savings and obligations"],
-        [50, 90, "Writing up the analysis"]
-      ];
       setAnalysisError(null);
-      setAnalysisStage({ pct: 4, label: "Starting up" });
+      setAnalysisStage({ pct: 3, label: "Starting up", step: 0, of: 3 });
+      let stageBase = 3, stageTop = 3, stageStart = Date.now();
+      const onStage = (n, of, label) => {
+        stageBase = Math.round((n - 1) / of * 94) + 3;
+        stageTop = Math.round(n / of * 94) + 3;
+        stageStart = Date.now();
+        setAnalysisStage({ pct: stageBase, label, step: n, of });
+      };
       const ticker = setInterval(() => {
-        const secs = (Date.now() - t0) / 1e3;
-        let cur = STAGES[0];
-        for (const st of STAGES) if (secs >= st[0]) cur = st;
-        const next = STAGES[STAGES.indexOf(cur) + 1];
-        const span = next ? next[1] - cur[1] : 4;
-        const dur = next ? next[0] - cur[0] : 25;
-        const into = Math.min(1, (secs - cur[0]) / Math.max(dur, 1));
-        setAnalysisStage({ pct: Math.min(93, Math.round(cur[1] + span * into)), label: cur[2] });
+        const into = Math.min(1, (Date.now() - stageStart) / 2e4);
+        setAnalysisStage((p) => p ? { ...p, pct: Math.min(stageTop - 1, Math.round(stageBase + (stageTop - stageBase) * into)) } : p);
       }, 400);
       try {
-        const a = await runAnalysis(selected, playbook, policyPacks);
+        const a = await runAnalysis(selected, playbook, policyPacks, onStage);
         clearInterval(ticker);
         setAnalysisStage({ pct: 100, label: "Done" });
         const ex = a.extracted || {};
@@ -4031,13 +4068,20 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
         setSelectedId(null);
         notify("Contract Record and all associated data deleted");
       }
-    } }, "Delete record")), analyzing && analysisStage && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16, maxWidth: 560 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 7 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: "#16283E" } }, analysisStage.label, "\u2026"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: "#2F7BD9" } }, analysisStage.pct, "%")), /* @__PURE__ */ React.createElement("div", { style: { height: 7, background: "#EEF3FA", borderRadius: 4, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: {
+    } }, "Delete record")), analyzing && analysisStage && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16, maxWidth: 560 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 7 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: "#16283E" } }, analysisStage.step ? `Step ${analysisStage.step} of ${analysisStage.of} \xB7 ` : "", analysisStage.label, "\u2026"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: "#2F7BD9" } }, analysisStage.pct, "%")), /* @__PURE__ */ React.createElement("div", { style: { height: 7, background: "#EEF3FA", borderRadius: 4, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: {
       height: "100%",
       width: `${analysisStage.pct}%`,
       borderRadius: 4,
       background: "linear-gradient(90deg,#2F7BD9,#5FA8F5)",
       transition: "width .45s ease"
-    } })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: "#7A8DA6", marginTop: 7 } }, "Reading ", (selected.documents || []).filter((d) => d.text && !d.purged).length, " document(s). This usually takes 30 to 60 seconds \u2014 you can leave this page open.")), !analyzing && analysisError && /* @__PURE__ */ React.createElement("div", { style: {
+    } })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: "#7A8DA6", marginTop: 7 } }, "Reading ", (selected.documents || []).filter((d) => d.text && !d.purged).length, " document(s). This usually takes 30 to 60 seconds \u2014 you can leave this page open.")), !analyzing && ((_d = (_c = selected.analysis) == null ? void 0 : _c.partial) == null ? void 0 : _d.length) > 0 && /* @__PURE__ */ React.createElement("div", { style: {
+      marginTop: 16,
+      maxWidth: 700,
+      background: "#FDF6E8",
+      border: "1px solid #EBD9AE",
+      borderRadius: 8,
+      padding: "13px 16px"
+    } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, fontWeight: 700, color: "#8A5A0E", marginBottom: 5 } }, "Partial analysis \u2014 some sections are missing"), /* @__PURE__ */ React.createElement("ul", { style: { fontSize: 12.5, color: "#3D4F66", lineHeight: 1.6, margin: "0 0 10px 18px" } }, selected.analysis.partial.map((p, i) => /* @__PURE__ */ React.createElement("li", { key: i }, p))), /* @__PURE__ */ React.createElement("button", { className: "btn sm", onClick: analyse }, "Run the missing sections")), !analyzing && analysisError && /* @__PURE__ */ React.createElement("div", { style: {
       marginTop: 16,
       maxWidth: 700,
       background: "#FDEEEC",
@@ -4063,7 +4107,7 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
     })() : /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "Run AI analysis to populate the verification queue"), /* @__PURE__ */ React.createElement("p", null, "Every extracted value, clause and risk is scored for confidence and routed for the right level of human review."))), tab === "Cost" && (selected.analysis ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "panel" }, /* @__PURE__ */ React.createElement("h4", null, "Cost position ", /* @__PURE__ */ React.createElement("span", { className: "save-tag", style: { marginLeft: 10 } }, "Est. saving ", fmtMoney(selected.analysis.cost.estimatedAnnualSaving, selected.currency), "/yr")), /* @__PURE__ */ React.createElement("p", null, selected.analysis.cost.summary)), selected.analysis.cost.breakdown.map((b, i) => /* @__PURE__ */ React.createElement("div", { className: "item-row", key: i }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("b", null, b.label), /* @__PURE__ */ React.createElement("span", null, b.detail))))) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "Run AI analysis to see cost insights"))), tab === "Users" && (selected.analysis ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "panel" }, /* @__PURE__ */ React.createElement("h4", null, "User & utilisation view"), /* @__PURE__ */ React.createElement("p", null, selected.analysis.users.summary)), selected.analysis.users.points.map((p, i) => /* @__PURE__ */ React.createElement("div", { className: "item-row", key: i }, /* @__PURE__ */ React.createElement("div", { className: "sev low" }), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("span", { style: { color: "#1d1d1f" } }, p))))) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "Run AI analysis to see user insights"))), tab === "Risk" && (selected.analysis ? selected.analysis.risks.map((r, i) => /* @__PURE__ */ React.createElement("div", { className: "item-row", key: i }, /* @__PURE__ */ React.createElement("div", { className: `sev ${r.severity}` }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("b", null, r.title), /* @__PURE__ */ React.createElement("span", null, r.detail)), /* @__PURE__ */ React.createElement("span", { className: `pill ${r.severity === "high" ? "risk" : r.severity === "medium" ? "warn" : "ok"}`, style: { marginTop: 0 } }, r.severity))) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "Run AI analysis to see risks"))), tab === "Opportunities" && (selected.analysis ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "panel", style: { padding: "16px 22px" } }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14 } }, /* @__PURE__ */ React.createElement("b", null, selected.analysis.opportunities.filter((o) => o.realised).length, " of ", selected.analysis.opportunities.length, " realised."), " Mark opportunities as realised when the saving lands \u2014 the executive digest tracks identified vs realised across the portfolio.")), selected.analysis.opportunities.map((o, i) => /* @__PURE__ */ React.createElement("div", { className: "item-row", key: i }, /* @__PURE__ */ React.createElement("div", { className: `sev ${o.realised ? "low" : "medium"}` }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("b", null, o.title), /* @__PURE__ */ React.createElement("span", null, o.detail)), /* @__PURE__ */ React.createElement("span", { className: "save-tag" }, o.savingEstimate), /* @__PURE__ */ React.createElement("button", { className: `btn sm ${o.realised ? "" : "ghost"}`, onClick: () => {
       const ops = selected.analysis.opportunities.map((x, j) => j === i ? { ...x, realised: !x.realised } : x);
       update(selected.id, { analysis: { ...selected.analysis, opportunities: ops } });
-    } }, o.realised ? "Realised \u2713" : "Mark realised")))) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "Run AI analysis to see opportunities"))), tab === "Compliance" && (((_c = selected.analysis) == null ? void 0 : _c.compliance) ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "panel" }, /* @__PURE__ */ React.createElement("h4", null, "Legal & compliance position"), /* @__PURE__ */ React.createElement("p", null, selected.analysis.compliance.summary)), /* @__PURE__ */ React.createElement("div", { className: "section-sub", style: { marginBottom: 10, fontWeight: 600, color: "#56718a", fontSize: 13, textTransform: "uppercase", letterSpacing: "0.06em" } }, "Clause checklist"), selected.analysis.compliance.clauses.map((c, i) => /* @__PURE__ */ React.createElement("div", { className: "item-row", key: i }, /* @__PURE__ */ React.createElement("div", { className: `sev ${c.status === "present" ? "low" : c.status === "missing" ? "high" : "medium"}` }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("b", null, c.clause), /* @__PURE__ */ React.createElement("span", null, c.note)), /* @__PURE__ */ React.createElement("span", { className: `pill ${c.status === "present" ? "ok" : c.status === "missing" ? "risk" : "warn"}`, style: { marginTop: 0 } }, c.status))), ((_d = selected.analysis.compliance.regulatory) == null ? void 0 : _d.length) > 0 && /* @__PURE__ */ React.createElement("div", { className: "panel", style: { marginTop: 16 } }, /* @__PURE__ */ React.createElement("h4", null, "Regulatory considerations"), /* @__PURE__ */ React.createElement("ul", null, selected.analysis.compliance.regulatory.map((x, i) => /* @__PURE__ */ React.createElement("li", { key: i }, x)))), ((_e = selected.analysis.obligations) == null ? void 0 : _e.length) > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "section-sub", style: { margin: "16px 0 10px", fontWeight: 600, color: "#56718a", fontSize: 13, textTransform: "uppercase", letterSpacing: "0.06em" } }, "Obligations register"), selected.analysis.obligations.map((o, i) => /* @__PURE__ */ React.createElement("div", { className: "item-row", key: i }, /* @__PURE__ */ React.createElement("span", { className: "pill blue", style: { marginTop: 2 } }, o.owner === "us" ? "Ours" : "Supplier"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("b", null, o.obligation), /* @__PURE__ */ React.createElement("span", null, "Due: ", o.due, " \xB7 ", o.note))))), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: "#86868b", marginTop: 14, lineHeight: 1.5 } }, "ContractIQ's compliance review is an AI-generated screening aid, not legal advice. Have qualified counsel confirm positions before signature or negotiation.")) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "Run AI analysis to see the compliance review"), /* @__PURE__ */ React.createElement("p", null, "Clause checklist, regulatory flags and the obligations register are generated from ingested documents."))), tab === "Knowledge" && (selected.analysis ? selected.analysis.knowledge ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "panel" }, /* @__PURE__ */ React.createElement("h4", null, "Institutional knowledge ", selected.documents.some((d) => d.type === "Meeting transcript") ? /* @__PURE__ */ React.createElement("span", { className: "pill blue", style: { marginTop: 0, marginLeft: 8 } }, "From ", selected.documents.filter((d) => d.type === "Meeting transcript").length, " transcript(s)") : /* @__PURE__ */ React.createElement("span", { className: "pill warn", style: { marginTop: 0, marginLeft: 8 } }, "No transcripts ingested")), /* @__PURE__ */ React.createElement("p", null, selected.analysis.knowledge.summary)), ((_f = selected.analysis.knowledge.points) == null ? void 0 : _f.length) > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "section-sub", style: { margin: "16px 0 10px", fontWeight: 700, color: "#56718A", fontSize: 12.5, textTransform: "uppercase", letterSpacing: "0.1em" } }, "What the meetings tell us"), selected.analysis.knowledge.points.map((k, i) => /* @__PURE__ */ React.createElement("div", { className: "item-row", key: i }, /* @__PURE__ */ React.createElement("div", { className: "sev low" }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("b", null, k.insight), /* @__PURE__ */ React.createElement("span", null, k.matters), /* @__PURE__ */ React.createElement("span", { style: { marginTop: 4, fontStyle: "italic", color: "#7B8CA3" } }, "Source: ", k.source))))), ((_g = selected.analysis.knowledge.verbalCommitments) == null ? void 0 : _g.length) > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "section-sub", style: { margin: "18px 0 10px", fontWeight: 700, color: "#56718A", fontSize: 12.5, textTransform: "uppercase", letterSpacing: "0.1em" } }, "Said in a meeting \u2014 is it in the contract?"), selected.analysis.knowledge.verbalCommitments.map((v, i) => /* @__PURE__ */ React.createElement("div", { className: "item-row", key: i }, /* @__PURE__ */ React.createElement("div", { className: `sev ${v.inContract === "yes" ? "low" : v.inContract === "no" ? "high" : "medium"}` }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("b", null, v.commitment), /* @__PURE__ */ React.createElement("span", null, "Said by ", v.saidBy, " \xB7 ", v.action)), /* @__PURE__ */ React.createElement("span", { className: `pill ${v.inContract === "yes" ? "ok" : v.inContract === "no" ? "risk" : "warn"}`, style: { marginTop: 0 } }, v.inContract === "yes" ? "In contract" : v.inContract === "no" ? "Not in contract" : "Unclear")))), ((_h = selected.analysis.knowledge.keyPersonRisk) == null ? void 0 : _h.length) > 0 && /* @__PURE__ */ React.createElement("div", { className: "panel", style: { borderLeftColor: "#E0493E", marginTop: 18 } }, /* @__PURE__ */ React.createElement("h4", null, "Knowledge at risk of walking out of the door"), /* @__PURE__ */ React.createElement("ul", null, selected.analysis.knowledge.keyPersonRisk.map((k, i) => /* @__PURE__ */ React.createElement("li", { key: i }, k)))), ((_i = selected.analysis.knowledge.openQuestions) == null ? void 0 : _i.length) > 0 && /* @__PURE__ */ React.createElement("div", { className: "panel" }, /* @__PURE__ */ React.createElement("h4", null, "Ask while you still can"), /* @__PURE__ */ React.createElement("ul", null, selected.analysis.knowledge.openQuestions.map((q, i) => /* @__PURE__ */ React.createElement("li", { key: i }, q)))), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: "#7B8CA3", marginTop: 14, lineHeight: 1.55 } }, "Meeting content is reported context, not contractual terms. Anything relied upon commercially should be confirmed in writing with the supplier.")) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "No knowledge captured yet"), /* @__PURE__ */ React.createElement("p", null, "Ingest a Teams or Zoom transcript into this record and re-run the analysis.")) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "Run AI analysis to capture institutional knowledge"), /* @__PURE__ */ React.createElement("p", null, "Add meeting transcripts to this record first \u2014 the context they hold is often nowhere in the contract itself."))), tab === "Insights" && (selected.analysis ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "panel" }, /* @__PURE__ */ React.createElement("h4", null, "Negotiation levers"), /* @__PURE__ */ React.createElement("ul", null, selected.analysis.insights.negotiationLevers.map((x, i) => /* @__PURE__ */ React.createElement("li", { key: i }, x)))), /* @__PURE__ */ React.createElement("div", { className: "panel" }, /* @__PURE__ */ React.createElement("h4", null, "Recommendations"), /* @__PURE__ */ React.createElement("ul", null, selected.analysis.insights.recommendations.map((x, i) => /* @__PURE__ */ React.createElement("li", { key: i }, x)))), /* @__PURE__ */ React.createElement("div", { className: "panel" }, /* @__PURE__ */ React.createElement("h4", null, "Dates to watch"), /* @__PURE__ */ React.createElement("ul", null, selected.analysis.insights.watchDates.map((x, i) => /* @__PURE__ */ React.createElement("li", { key: i }, x)))), /* @__PURE__ */ React.createElement("div", { className: "export-bar", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, color: "#56718a", fontWeight: 700 } }, "EXPORT INSIGHT PACK"), /* @__PURE__ */ React.createElement("button", { className: "btn ghost sm", onClick: () => exportWord(selected) }, "Word (.doc)"), /* @__PURE__ */ React.createElement("button", { className: "btn ghost sm", onClick: () => exportPDF(selected) }, "PDF"), /* @__PURE__ */ React.createElement("button", { className: "btn ghost sm", onClick: () => exportPPT(selected) }, "PPT outline"))) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "Run AI analysis to unlock insights & exports"))), tab === "Documents" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+    } }, o.realised ? "Realised \u2713" : "Mark realised")))) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "Run AI analysis to see opportunities"))), tab === "Compliance" && (((_e = selected.analysis) == null ? void 0 : _e.compliance) ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "panel" }, /* @__PURE__ */ React.createElement("h4", null, "Legal & compliance position"), /* @__PURE__ */ React.createElement("p", null, selected.analysis.compliance.summary)), /* @__PURE__ */ React.createElement("div", { className: "section-sub", style: { marginBottom: 10, fontWeight: 600, color: "#56718a", fontSize: 13, textTransform: "uppercase", letterSpacing: "0.06em" } }, "Clause checklist"), selected.analysis.compliance.clauses.map((c, i) => /* @__PURE__ */ React.createElement("div", { className: "item-row", key: i }, /* @__PURE__ */ React.createElement("div", { className: `sev ${c.status === "present" ? "low" : c.status === "missing" ? "high" : "medium"}` }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("b", null, c.clause), /* @__PURE__ */ React.createElement("span", null, c.note)), /* @__PURE__ */ React.createElement("span", { className: `pill ${c.status === "present" ? "ok" : c.status === "missing" ? "risk" : "warn"}`, style: { marginTop: 0 } }, c.status))), ((_f = selected.analysis.compliance.regulatory) == null ? void 0 : _f.length) > 0 && /* @__PURE__ */ React.createElement("div", { className: "panel", style: { marginTop: 16 } }, /* @__PURE__ */ React.createElement("h4", null, "Regulatory considerations"), /* @__PURE__ */ React.createElement("ul", null, selected.analysis.compliance.regulatory.map((x, i) => /* @__PURE__ */ React.createElement("li", { key: i }, x)))), ((_g = selected.analysis.obligations) == null ? void 0 : _g.length) > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "section-sub", style: { margin: "16px 0 10px", fontWeight: 600, color: "#56718a", fontSize: 13, textTransform: "uppercase", letterSpacing: "0.06em" } }, "Obligations register"), selected.analysis.obligations.map((o, i) => /* @__PURE__ */ React.createElement("div", { className: "item-row", key: i }, /* @__PURE__ */ React.createElement("span", { className: "pill blue", style: { marginTop: 2 } }, o.owner === "us" ? "Ours" : "Supplier"), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("b", null, o.obligation), /* @__PURE__ */ React.createElement("span", null, "Due: ", o.due, " \xB7 ", o.note))))), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: "#86868b", marginTop: 14, lineHeight: 1.5 } }, "ContractIQ's compliance review is an AI-generated screening aid, not legal advice. Have qualified counsel confirm positions before signature or negotiation.")) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "Run AI analysis to see the compliance review"), /* @__PURE__ */ React.createElement("p", null, "Clause checklist, regulatory flags and the obligations register are generated from ingested documents."))), tab === "Knowledge" && (selected.analysis ? selected.analysis.knowledge ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "panel" }, /* @__PURE__ */ React.createElement("h4", null, "Institutional knowledge ", selected.documents.some((d) => d.type === "Meeting transcript") ? /* @__PURE__ */ React.createElement("span", { className: "pill blue", style: { marginTop: 0, marginLeft: 8 } }, "From ", selected.documents.filter((d) => d.type === "Meeting transcript").length, " transcript(s)") : /* @__PURE__ */ React.createElement("span", { className: "pill warn", style: { marginTop: 0, marginLeft: 8 } }, "No transcripts ingested")), /* @__PURE__ */ React.createElement("p", null, selected.analysis.knowledge.summary)), ((_h = selected.analysis.knowledge.points) == null ? void 0 : _h.length) > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "section-sub", style: { margin: "16px 0 10px", fontWeight: 700, color: "#56718A", fontSize: 12.5, textTransform: "uppercase", letterSpacing: "0.1em" } }, "What the meetings tell us"), selected.analysis.knowledge.points.map((k, i) => /* @__PURE__ */ React.createElement("div", { className: "item-row", key: i }, /* @__PURE__ */ React.createElement("div", { className: "sev low" }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("b", null, k.insight), /* @__PURE__ */ React.createElement("span", null, k.matters), /* @__PURE__ */ React.createElement("span", { style: { marginTop: 4, fontStyle: "italic", color: "#7B8CA3" } }, "Source: ", k.source))))), ((_i = selected.analysis.knowledge.verbalCommitments) == null ? void 0 : _i.length) > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "section-sub", style: { margin: "18px 0 10px", fontWeight: 700, color: "#56718A", fontSize: 12.5, textTransform: "uppercase", letterSpacing: "0.1em" } }, "Said in a meeting \u2014 is it in the contract?"), selected.analysis.knowledge.verbalCommitments.map((v, i) => /* @__PURE__ */ React.createElement("div", { className: "item-row", key: i }, /* @__PURE__ */ React.createElement("div", { className: `sev ${v.inContract === "yes" ? "low" : v.inContract === "no" ? "high" : "medium"}` }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("b", null, v.commitment), /* @__PURE__ */ React.createElement("span", null, "Said by ", v.saidBy, " \xB7 ", v.action)), /* @__PURE__ */ React.createElement("span", { className: `pill ${v.inContract === "yes" ? "ok" : v.inContract === "no" ? "risk" : "warn"}`, style: { marginTop: 0 } }, v.inContract === "yes" ? "In contract" : v.inContract === "no" ? "Not in contract" : "Unclear")))), ((_j = selected.analysis.knowledge.keyPersonRisk) == null ? void 0 : _j.length) > 0 && /* @__PURE__ */ React.createElement("div", { className: "panel", style: { borderLeftColor: "#E0493E", marginTop: 18 } }, /* @__PURE__ */ React.createElement("h4", null, "Knowledge at risk of walking out of the door"), /* @__PURE__ */ React.createElement("ul", null, selected.analysis.knowledge.keyPersonRisk.map((k, i) => /* @__PURE__ */ React.createElement("li", { key: i }, k)))), ((_k = selected.analysis.knowledge.openQuestions) == null ? void 0 : _k.length) > 0 && /* @__PURE__ */ React.createElement("div", { className: "panel" }, /* @__PURE__ */ React.createElement("h4", null, "Ask while you still can"), /* @__PURE__ */ React.createElement("ul", null, selected.analysis.knowledge.openQuestions.map((q, i) => /* @__PURE__ */ React.createElement("li", { key: i }, q)))), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: "#7B8CA3", marginTop: 14, lineHeight: 1.55 } }, "Meeting content is reported context, not contractual terms. Anything relied upon commercially should be confirmed in writing with the supplier.")) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "No knowledge captured yet"), /* @__PURE__ */ React.createElement("p", null, "Ingest a Teams or Zoom transcript into this record and re-run the analysis.")) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "Run AI analysis to capture institutional knowledge"), /* @__PURE__ */ React.createElement("p", null, "Add meeting transcripts to this record first \u2014 the context they hold is often nowhere in the contract itself."))), tab === "Insights" && (selected.analysis ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "panel" }, /* @__PURE__ */ React.createElement("h4", null, "Negotiation levers"), /* @__PURE__ */ React.createElement("ul", null, selected.analysis.insights.negotiationLevers.map((x, i) => /* @__PURE__ */ React.createElement("li", { key: i }, x)))), /* @__PURE__ */ React.createElement("div", { className: "panel" }, /* @__PURE__ */ React.createElement("h4", null, "Recommendations"), /* @__PURE__ */ React.createElement("ul", null, selected.analysis.insights.recommendations.map((x, i) => /* @__PURE__ */ React.createElement("li", { key: i }, x)))), /* @__PURE__ */ React.createElement("div", { className: "panel" }, /* @__PURE__ */ React.createElement("h4", null, "Dates to watch"), /* @__PURE__ */ React.createElement("ul", null, selected.analysis.insights.watchDates.map((x, i) => /* @__PURE__ */ React.createElement("li", { key: i }, x)))), /* @__PURE__ */ React.createElement("div", { className: "export-bar", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, color: "#56718a", fontWeight: 700 } }, "EXPORT INSIGHT PACK"), /* @__PURE__ */ React.createElement("button", { className: "btn ghost sm", onClick: () => exportWord(selected) }, "Word (.doc)"), /* @__PURE__ */ React.createElement("button", { className: "btn ghost sm", onClick: () => exportPDF(selected) }, "PDF"), /* @__PURE__ */ React.createElement("button", { className: "btn ghost sm", onClick: () => exportPPT(selected) }, "PPT outline"))) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "Run AI analysis to unlock insights & exports"))), tab === "Documents" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
       "div",
       {
         className: "doc-drop",
