@@ -1424,10 +1424,17 @@ Never score above 50 for anything from a transcript alone. When torn between two
 
 Return ONLY valid JSON. No prose before or after, no code fences. Keep every string tight \u2014 one or two sentences unless asked otherwise.`;
   }
+  const LENGTH_RULES = `
+LENGTH DISCIPLINE \u2014 this is a hard requirement, not a style note:
+ - Respect every "max" below. Returning more items than asked for causes the response to be cut off and LOST.
+ - Prefer the most material findings. Six sharp entries beat twenty thin ones.
+ - Keep every "detail", "note" and "reasoning" to ONE sentence unless the schema says otherwise. Never more than two.
+ - No preamble, no closing remarks, no markdown, no code fences. JSON only.`;
   function stage1Prompt(contract, customPlaybook, policyPacks) {
     return `You are ContractIQ, an expert contract and commercial analyst. Extract the facts of this contract.
 
 ${analysisContextFor(contract, customPlaybook, policyPacks)}
+${LENGTH_RULES}
 
 Return exactly this shape:
 {
@@ -1437,73 +1444,110 @@ Return exactly this shape:
     "noticePeriodDays": <number|null>, "autoRenew": <boolean|null>, "owner": <string|null>,
     "users": <number|null>, "paymentTerms": <string|null>, "upliftMechanism": <string|null>
   },
-  "dataPoints": [
+  "dataPoints": [   // one per NON-NULL field above, max 12
     { "field": "<key from extracted>", "kind": "extraction", "value": "<value as text>",
-      "confidence": <0-100>, "reasoning": "<why this value, one sentence>",
-      "sourceRef": "<document + quoted phrase, or 'inferred: <basis>', or 'not found in ingested documents'>" }
+      "confidence": <0-100>, "reasoning": "<ONE sentence>",
+      "sourceRef": "<document + short quoted phrase, or 'inferred: <basis>', or 'not found in ingested documents'>" }
   ],
-  "plainTerms": [ { "term": "<jargon or defined term>", "means": "<plain English, one sentence>" } ],
-  "execSummary": "<3-4 sentences: what this contract is, what it costs, when it ends, the single thing to watch>",
+  "plainTerms": [ { "term": "<jargon or defined term>", "means": "<ONE plain sentence>" } ],   // max 8
+  "execSummary": "<3-4 sentences: what this is, what it costs, when it ends, the one thing to watch>",
   "healthScore": <0-100 integer>,
   "riskGrade": <"A"|"B"|"C"|"D"|"F">
 }
-Emit a dataPoints entry for EVERY non-null field in extracted. Use null where the documents do not say. Never take contract values or dates from a transcript alone.`;
+Use null where the documents do not say. Never take contract values or dates from a transcript alone.`;
   }
   function stage2Prompt(contract, customPlaybook, policyPacks) {
-    return `You are ContractIQ, an expert contract and commercial analyst. Assess the commercial position and the risk.
+    return `You are ContractIQ, an expert contract and commercial analyst. Assess the commercial position only.
 
 ${analysisContextFor(contract, customPlaybook, policyPacks)}
+${LENGTH_RULES}
 
 Return exactly this shape:
 {
   "cost": {
-    "summary": "<paragraph: current position, trajectory, how it compares to market>",
-    "breakdown": [ { "label": "<cost element>", "detail": "<1-2 sentences>" } ],
+    "summary": "<max 4 sentences: current position, trajectory, how it compares to market>",
+    "breakdown": [ { "label": "<cost element>", "detail": "<ONE sentence>" } ],   // max 6
     "estimatedAnnualSaving": <number|null>
   },
-  "users": { "summary": "<paragraph on seats, licences or volume>", "points": ["<observation>"] },
-  "risks": [ { "title": "<risk>", "severity": "high|medium|low",
-    "detail": "<what it means and how to mitigate>", "confidence": <0-100>,
-    "sourceRef": "<document + quoted phrase, or basis of inference>" } ],
-  "opportunities": [ { "title": "<opportunity>", "savingEstimate": "<e.g. '\xA385k/yr'>",
-    "detail": "<how to realise it, and the leverage you have>" } ]
+  "users": {
+    "summary": "<max 3 sentences on seats, licences or volume>",
+    "points": ["<ONE sentence observation>"]   // max 5
+  }
 }
-Be specific and commercially realistic. Prefer six sharp findings to twenty vague ones. If documents contradict each other on a figure, raise it as a risk rather than picking one.`;
+If usage or licence data is present, compare entitlement against actual use and quantify anything dormant.`;
   }
   function stage3Prompt(contract, customPlaybook, policyPacks) {
-    return `You are ContractIQ, an expert contract and commercial analyst. Cover compliance, obligations, institutional knowledge and the actions arising.
+    return `You are ContractIQ, an expert contract and commercial analyst. Identify risks and savings only.
 
 ${analysisContextFor(contract, customPlaybook, policyPacks)}
+${LENGTH_RULES}
+
+Return exactly this shape:
+{
+  "risks": [   // MAX 8, most material first
+    { "title": "<short label>", "severity": "high|medium|low",
+      "detail": "<max 2 sentences: what it means and how to mitigate>",
+      "confidence": <0-100>, "sourceRef": "<document + short quote, or basis of inference>" }
+  ],
+  "opportunities": [   // MAX 6, most winnable first
+    { "title": "<short label>", "savingEstimate": "<e.g. '\xA385k/yr' or 'not quantifiable'>",
+      "detail": "<max 2 sentences: how to realise it and what leverage you have>" }
+  ]
+}
+If documents contradict each other on a figure or a date, raise that as a risk rather than picking one.`;
+  }
+  function stage4Prompt(contract, customPlaybook, policyPacks) {
+    return `You are ContractIQ, an expert contract and commercial analyst. Cover compliance and obligations only.
+
+${analysisContextFor(contract, customPlaybook, policyPacks)}
+${LENGTH_RULES}
 
 Return exactly this shape:
 {
   "compliance": {
-    "summary": "<paragraph>",
-    "clauses": [ { "clause": "<e.g. Liability cap>", "status": "present|missing|unclear",
-      "note": "<what it says, or what its absence exposes>" } ],
-    "regulatory": [ "<e.g. 'UK GDPR / DPA 2018: processing terms present; confirm records of processing are on file.' \u2014 one string per area, naming the area then the position>" ]
+    "summary": "<max 3 sentences>",
+    "clauses": [   // MAX 12 \u2014 the clauses that matter for a contract of this type
+      { "clause": "<e.g. Liability cap>", "status": "present|missing|unclear",
+        "note": "<ONE sentence: what it says, or what its absence exposes>" }
+    ],
+    "regulatory": ["<ONE string per area, e.g. 'UK GDPR / DPA 2018: processing terms present; confirm records of processing are held.'>"]   // max 5
   },
-  "obligations": [ { "obligation": "<what must be done>", "owner": "<us|supplier>",
-    "due": "<YYYY-MM-DD or a frequency such as 'quarterly'>",
-    "note": "<what happens if it is missed>" } ],
+  "obligations": [   // MAX 10
+    { "obligation": "<what must be done>", "owner": "<us|supplier>",
+      "due": "<YYYY-MM-DD or a frequency such as 'quarterly'>",
+      "note": "<ONE sentence: what happens if it is missed>" }
+  ]
+}
+Assess against standard UK enterprise practice (UK GDPR / Data Protection Act 2018, Bribery Act 2010, Modern Slavery Act 2015 where relevant). Mark "unclear" where the documents are insufficient to judge \u2014 do not guess.`;
+  }
+  function stage5Prompt(contract, customPlaybook, policyPacks) {
+    return `You are ContractIQ, an expert contract and commercial analyst. Cover institutional knowledge and the actions arising.
+
+${analysisContextFor(contract, customPlaybook, policyPacks)}
+${LENGTH_RULES}
+
+Return exactly this shape:
+{
   "knowledge": {
-    "summary": "<paragraph on undocumented context>",
-    "points": ["<insight, attributed to who said it and where>"],
-    "verbalCommitments": [ { "commitment": "<what was promised>", "saidBy": "<speaker and meeting>",
-      "inContract": "yes|no|unclear", "action": "<what to do about it>" } ],
-    "keyPeople": [ { "name": "<person>", "holds": "<what only they know>" } ],
-    "keyPersonRisk": ["<one string per person: what would be lost if they left>"],
-    "openQuestions": ["<question the documents do not answer>"]
+    "summary": "<max 3 sentences on undocumented context>",
+    "points": ["<ONE sentence, attributed to who said it and where>"],   // max 6
+    "verbalCommitments": [   // max 6
+      { "commitment": "<what was promised>", "saidBy": "<speaker and meeting>",
+        "inContract": "yes|no|unclear", "action": "<ONE sentence: what to do about it>" }
+    ],
+    "keyPeople": [ { "name": "<person>", "holds": "<ONE sentence: what only they know>" } ],   // max 5
+    "keyPersonRisk": ["<ONE sentence per person: what would be lost if they left>"],   // max 4
+    "openQuestions": ["<ONE question the documents do not answer>"]   // max 5
   },
   "insights": {
-    "negotiationLevers": ["<lever>"],
-    "recommendations": ["<action + when to take it>"],
-    "watchDates": ["<date or window + why it matters>"],
+    "negotiationLevers": ["<ONE sentence per lever>"],        // max 6
+    "recommendations": ["<action + when to take it, ONE sentence>"],   // max 6
+    "watchDates": ["<date or window + why it matters, ONE sentence>"],  // max 5
     "reviewStartDate": "<YYYY-MM-DD \u2014 when to BEGIN the renewal review, working back from the notice deadline>",
     "reviewLeadTimeWeeks": <number>
   }
 }
-Assess compliance against standard UK enterprise practice (UK GDPR / Data Protection Act 2018, Bribery Act 2010, Modern Slavery Act 2015 where relevant); mark "unclear" where documents are insufficient. If no transcripts are present, still return "knowledge" with empty arrays and a summary saying so. reviewStartDate must allow realistic time to benchmark, gather stakeholders and negotiate before the notice deadline falls.`;
+If no transcripts are present, still return "knowledge" with empty arrays and a summary saying so. reviewStartDate must leave realistic time to benchmark, gather stakeholders and negotiate before the notice deadline falls.`;
   }
   function analysisPromptFor(contract, customPlaybook, policyPacks) {
     return stage1Prompt(contract, customPlaybook, policyPacks);
@@ -1649,9 +1693,11 @@ Assess compliance against standard UK enterprise practice (UK GDPR / Data Protec
     }
     if (!AI_ENDPOINT) throw aiUnavailable();
     const stages = [
-      { n: 1, label: "Reading the contract and extracting terms", build: stage1Prompt, tokens: 6e3 },
-      { n: 2, label: "Assessing cost, risk and opportunities", build: stage2Prompt, tokens: 6e3 },
-      { n: 3, label: "Checking compliance, obligations and knowledge", build: stage3Prompt, tokens: 6e3 }
+      { n: 1, label: "Reading the contract and extracting terms", build: stage1Prompt, tokens: 8e3 },
+      { n: 2, label: "Assessing cost and usage", build: stage2Prompt, tokens: 8e3 },
+      { n: 3, label: "Identifying risks and savings", build: stage3Prompt, tokens: 8e3 },
+      { n: 4, label: "Checking compliance and obligations", build: stage4Prompt, tokens: 8e3 },
+      { n: 5, label: "Capturing knowledge and next steps", build: stage5Prompt, tokens: 8e3 }
     ];
     const merged = {};
     const failed = [];
@@ -1677,7 +1723,20 @@ Assess compliance against standard UK enterprise practice (UK GDPR / Data Protec
         }
         const data = await res.json();
         if ((data == null ? void 0 : data.stop_reason) === "max_tokens") {
-          throw new Error(`Stage ${st.n} produced more output than the limit allows.`);
+          const brief = st.build(contract, customPlaybook, policyPacks) + "\n\nIMPORTANT: your previous attempt was too long and was discarded. Return AT MOST HALF the number of items in every array, and keep every string to one short sentence.";
+          const retry = await fetch(AI_ENDPOINT, {
+            method: "POST",
+            headers: aiHeaders(),
+            body: JSON.stringify({ max_tokens: st.tokens, messages: [{ role: "user", content: brief }] })
+          });
+          if (!retry.ok) throw new Error(explainAiFailure(retry.status, ""));
+          const rd = await retry.json();
+          if ((rd == null ? void 0 : rd.stop_reason) === "max_tokens") {
+            throw new Error(`this section is unusually large even when asked to be brief \u2014 try splitting the documents across two records.`);
+          }
+          const rt = (rd.content || []).filter((x) => x.type === "text").map((x) => x.text).join("\n");
+          Object.assign(merged, parseStageJson(rt));
+          continue;
         }
         const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
         if (!text.trim()) throw new Error(`Stage ${st.n} returned an empty response.`);
