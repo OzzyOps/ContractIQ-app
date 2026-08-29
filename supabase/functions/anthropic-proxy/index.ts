@@ -32,8 +32,15 @@ let callsThisWindow = 0;
 
 const corsHeaders = (origin: string) => ({
   "Access-Control-Allow-Origin": ALLOWED_ORIGIN || origin || "*",
-  "Access-Control-Allow-Headers": "authorization, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
+  // Cache the preflight for 24 hours. Without this the browser asks
+  // permission before EVERY call — five times per analysis — and each
+  // OPTIONS is another chance to hit a worker that is still booting or
+  // shutting down after a long request, which returns 502 and makes the
+  // browser report "Failed to fetch" without ever sending the POST.
+  // One preflight per day instead of five per analysis.
+  "Access-Control-Max-Age": "86400",
   "Vary": "Origin",
 });
 
@@ -41,7 +48,11 @@ serve(async (req) => {
   const origin = req.headers.get("origin") ?? "";
   const cors = corsHeaders(origin);
 
-  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
+  // Answer the preflight FIRST and as cheaply as possible: 204, no body,
+  // before any key check, rate-limit check or JSON parsing. A preflight
+  // that fails blocks the real request entirely, so it must never depend
+  // on anything that could error.
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }),
       { status: 405, headers: { ...cors, "Content-Type": "application/json" } });

@@ -1157,7 +1157,8 @@ setTimeout(function(){
   .cmsg { max-width: 85%; border-radius: 8px; padding: 12px 15px; font-size: 13.5px; line-height: 1.55; margin-bottom: 10px; white-space: pre-wrap; font-weight: 500; }
   .cmsg.user { background: #2F7BD9; color: #fff; margin-left: auto; border-bottom-right-radius: 2px; }
   .cmsg.bot { background: #fff; border: 1px solid #E1EAF6; border-left: 3px solid #37D5C3; border-bottom-left-radius: 2px; color: #16283E; }
-  .cedric-input { display: flex; gap: 8px; padding: 12px; border-top: 1px solid #E1EAF6; background: #fff; }
+  @keyframes ciqpulse { 0%,100% { box-shadow: 0 0 0 0 rgba(224,73,62,0.45); } 50% { box-shadow: 0 0 0 7px rgba(224,73,62,0); } }
+  .cedric-input { display: flex; gap: 8px; align-items: center; padding: 12px; border-top: 1px solid #E1EAF6; background: #fff; }
   .cedric-input input { flex: 1; border: 1.5px solid #D6E3F5; border-radius: 100px; padding: 10px 16px; font-size: 13.5px; font-family: inherit; font-weight: 500; outline: none; }
   .cedric-input input:focus { border-color: #2F7BD9; }
   .cedric-sugs { padding: 0 18px 8px; display: flex; gap: 6px; flex-wrap: wrap; background: #F5F9FE; }
@@ -1563,7 +1564,9 @@ If no transcripts are present, still return "knowledge" with empty arrays and a 
       if (d.includes("origin")) return "Your AI function rejected this site. The ALLOWED_ORIGIN secret in Supabase must exactly match this app's address \u2014 https:// and the domain only, no folder and no trailing slash.";
       return "The AI function refused the request. In Supabase, open the anthropic-proxy function and turn OFF 'Verify JWT'.";
     }
-    if (status === 429) return detail || "Rate limit reached. This is the hourly cap you set in Supabase, not an Anthropic limit.";
+    if (status === 429) {
+      return (detail || "Rate limit reached.") + " This is the MAX_CALLS_PER_HOUR cap you set in Supabase, not an Anthropic limit. Each analysis makes five calls, so the default of 60 allows about twelve analyses an hour. Raise it in Edge Functions \u2192 Secrets, or wait for the hour to roll over.";
+    }
     if (status === 500) {
       if (d.includes("missing") || d.includes("api_key") || d.includes("anthropic_api_key"))
         return "Your API key is not reaching the function. In Supabase \u2192 Edge Functions \u2192 Secrets, check ANTHROPIC_API_KEY is spelled exactly that way and holds the full sk-ant-\u2026 key.";
@@ -1649,11 +1652,35 @@ If no transcripts are present, still return "knowledge" with empty arrays and a 
     }
     return r;
   }
+  async function fetchWithRetry(url, opts, attempts = 3) {
+    let lastErr;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        const res = await fetch(url, opts);
+        if (res.status >= 500 || res.status === 408) {
+          if (i < attempts - 1) {
+            await new Promise((r) => setTimeout(r, 1200 * Math.pow(2, i)));
+            continue;
+          }
+        }
+        return res;
+      } catch (e) {
+        lastErr = e;
+        if (i < attempts - 1) {
+          await new Promise((r) => setTimeout(r, 1200 * Math.pow(2, i)));
+          continue;
+        }
+      }
+    }
+    throw new Error("Could not reach your AI function after three attempts. That usually means a brief network problem \u2014 try again in a moment. If it persists, check the function is still deployed in Supabase.");
+  }
   function parseStageJson(raw) {
     let t = String(raw).trim();
     t = t.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
-    const first = t.indexOf("{"), last = t.lastIndexOf("}");
-    if (first > -1 && last > first) t = t.slice(first, last + 1);
+    const first = t.indexOf("{");
+    if (first > 0) t = t.slice(first);
+    const last = t.lastIndexOf("}");
+    if (last > 0 && last < t.length - 1) t = t.slice(0, last + 1);
     try {
       return JSON.parse(t);
     } catch (e) {
@@ -1662,7 +1689,73 @@ If no transcripts are present, still return "knowledge" with empty arrays and a 
       return JSON.parse(t.replace(/,\s*([}\]])/g, "$1"));
     } catch (e) {
     }
+    const salvaged = repairTruncatedJson(t);
+    if (salvaged) return salvaged;
     throw new Error("the response was not valid JSON");
+  }
+  function repairTruncatedJson(t) {
+    const stack = [];
+    let inStr = false, esc2 = false, lastGood = -1;
+    for (let i = 0; i < t.length; i++) {
+      const c = t[i];
+      if (inStr) {
+        if (esc2) {
+          esc2 = false;
+          continue;
+        }
+        if (c === "\\") {
+          esc2 = true;
+          continue;
+        }
+        if (c === '"') inStr = false;
+        continue;
+      }
+      if (c === '"') {
+        inStr = true;
+        continue;
+      }
+      if (c === "{" || c === "[") stack.push(c === "{" ? "}" : "]");
+      else if (c === "}" || c === "]") stack.pop();
+      else if (c === "," && stack.length <= 3) lastGood = i;
+    }
+    if (lastGood < 0) return null;
+    let head = t.slice(0, lastGood);
+    const open = [];
+    inStr = false;
+    esc2 = false;
+    for (let i = 0; i < head.length; i++) {
+      const c = head[i];
+      if (inStr) {
+        if (esc2) {
+          esc2 = false;
+          continue;
+        }
+        if (c === "\\") {
+          esc2 = true;
+          continue;
+        }
+        if (c === '"') inStr = false;
+        continue;
+      }
+      if (c === '"') {
+        inStr = true;
+        continue;
+      }
+      if (c === "{") open.push("}");
+      else if (c === "[") open.push("]");
+      else if (c === "}" || c === "]") open.pop();
+    }
+    if (inStr) head += '"';
+    const closed = head + open.reverse().join("");
+    try {
+      const parsed = JSON.parse(closed);
+      if (parsed && typeof parsed === "object") {
+        parsed.__salvaged = true;
+        return parsed;
+      }
+    } catch (e) {
+    }
+    return null;
   }
   async function runAnalysis(contract, customPlaybook, policyPacks, onStage) {
     var _a;
@@ -1704,7 +1797,7 @@ If no transcripts are present, still return "knowledge" with empty arrays and a 
     for (const st of stages) {
       if (onStage) onStage(st.n, stages.length, st.label);
       try {
-        const res = await fetch(AI_ENDPOINT, {
+        const res = await fetchWithRetry(AI_ENDPOINT, {
           method: "POST",
           headers: aiHeaders(),
           body: JSON.stringify({
@@ -1724,7 +1817,7 @@ If no transcripts are present, still return "knowledge" with empty arrays and a 
         const data = await res.json();
         if ((data == null ? void 0 : data.stop_reason) === "max_tokens") {
           const brief = st.build(contract, customPlaybook, policyPacks) + "\n\nIMPORTANT: your previous attempt was too long and was discarded. Return AT MOST HALF the number of items in every array, and keep every string to one short sentence.";
-          const retry = await fetch(AI_ENDPOINT, {
+          const retry = await fetchWithRetry(AI_ENDPOINT, {
             method: "POST",
             headers: aiHeaders(),
             body: JSON.stringify({ max_tokens: st.tokens, messages: [{ role: "user", content: brief }] })
@@ -1753,6 +1846,30 @@ If no transcripts are present, still return "knowledge" with empty arrays and a 
     }
     return out;
   }
+  function speechSupported() {
+    return typeof window !== "undefined" && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  }
+  function makeRecogniser({ onText, onEnd, onError }) {
+    const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Ctor) return null;
+    const r = new Ctor();
+    r.lang = "en-GB";
+    r.continuous = false;
+    r.interimResults = true;
+    r.maxAlternatives = 1;
+    r.onresult = (e) => {
+      let finalText = "", interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalText += t;
+        else interim += t;
+      }
+      onText(finalText, interim);
+    };
+    r.onerror = (e) => onError((e == null ? void 0 : e.error) === "not-allowed" ? "Microphone access was blocked. Allow it in your browser's site settings." : (e == null ? void 0 : e.error) === "no-speech" ? "I did not catch anything \u2014 try again." : "Voice input failed. You can still type your question.");
+    r.onend = onEnd;
+    return r;
+  }
   async function askCedric(question, history, contract) {
     if (DEMO_MODE) {
       await new Promise((r) => setTimeout(r, 900));
@@ -1767,7 +1884,7 @@ ${clipContext(docContext(contract)) || "(none)"}
 LATEST ANALYSIS:
 ${JSON.stringify(contract.analysis) || "(not yet run)"}`;
     if (!AI_ENDPOINT) throw aiUnavailable();
-    const res = await fetch(AI_ENDPOINT, {
+    const res = await fetchWithRetry(AI_ENDPOINT, {
       method: "POST",
       headers: aiHeaders(),
       body: JSON.stringify({
@@ -2189,6 +2306,11 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
     const [cedricOpen, setCedricOpen] = useState(false);
     const [cedricMsgs, setCedricMsgs] = useState([]);
     const [cedricInput, setCedricInput] = useState("");
+    const [pendingAction, setPendingAction] = useState(null);
+    const [listening, setListening] = useState(false);
+    const [voiceNote, setVoiceNote] = useState(null);
+    const [voiceAccepted, setVoiceAccepted] = useState(false);
+    const recogRef = useRef(null);
     const [actionCat, setActionCat] = useState("All");
     const [actionSearch, setActionSearch] = useState("");
     const [copiedAction, setCopiedAction] = useState(null);
@@ -2528,6 +2650,13 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
         }
       })();
     }, [session, sb.url, sb.key]);
+    useEffect(() => {
+      if (!cedricOpen && recogRef.current) {
+        recogRef.current.stop();
+        recogRef.current = null;
+        setListening(false);
+      }
+    }, [cedricOpen]);
     useEffect(() => {
       if (resendIn <= 0) return;
       const t = setTimeout(() => setResendIn((n) => n - 1), 1e3);
@@ -3452,14 +3581,19 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
       notify("Contract Record created \u2014 now ingest its documents");
     };
     const runAction = (action) => {
-      if (!selected) {
-        notify("Open a contract first \u2014 Cedric answers from that contract's documents.");
+      if (selected) {
+        setPage("portfolio");
+        setCedricOpen(true);
+        sendCedric(action.prompt);
+        return;
+      }
+      if (!contracts.length) {
+        notify("Add a contract record first \u2014 Cedric only answers from your own documents.");
         setPage("portfolio");
         return;
       }
-      setPage("portfolio");
+      setPendingAction(action);
       setCedricOpen(true);
-      sendCedric(action.prompt);
     };
     const copyAction = async (action) => {
       try {
@@ -3481,12 +3615,51 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
       setCopiedAction(action.id);
       setTimeout(() => setCopiedAction((c) => c === action.id ? null : c), 1800);
     };
-    const sendCedric = async (q) => {
+    const toggleVoice = () => {
+      var _a2;
+      if (listening) {
+        (_a2 = recogRef.current) == null ? void 0 : _a2.stop();
+        return;
+      }
+      if (!speechSupported()) {
+        setVoiceNote("Your browser does not support voice input. Chrome or Safari do; Firefox does not.");
+        return;
+      }
+      if (!voiceAccepted) {
+        const ok = window.confirm(
+          "Voice input uses your browser's speech recognition.\n\nIn Chrome that means the audio you speak is sent to Google to be transcribed. Your contract documents are never sent \u2014 only what you say aloud.\n\nContinue?"
+        );
+        if (!ok) return;
+        setVoiceAccepted(true);
+      }
+      const base = cedricInput;
+      const r = makeRecogniser({
+        onText: (finalText, interim) => setCedricInput((base + " " + finalText + interim).trim()),
+        onEnd: () => {
+          setListening(false);
+          recogRef.current = null;
+        },
+        onError: (msg) => {
+          setVoiceNote(msg);
+          setListening(false);
+        }
+      });
+      if (!r) return;
+      recogRef.current = r;
+      setVoiceNote(null);
+      setListening(true);
+      try {
+        r.start();
+      } catch (e) {
+        setListening(false);
+      }
+    };
+    const sendCedric = async (q, forceContract) => {
       const question = (q || cedricInput).trim();
       if (!question || cedricBusy) return;
       setCedricInput("");
       setCedricMsgs((m) => [...m, { role: "user", text: question }]);
-      const target = matchContract(question, contracts) || selected;
+      const target = forceContract || matchContract(question, contracts) || selected;
       if (!target) {
         const list = contracts.map((c) => `\u2022 ${c.ref} \u2014 ${c.supplier}${c.name ? ` (${c.name})` : ""}`).join("\n");
         setCedricMsgs((m) => [...m, { role: "assistant", text: `To keep my answers accurate, I only recall information for a contract you name \u2014 include a contract ref, name or supplier in your question, e.g. "When does CTR-0001 renew?" or "Biggest risk on the Microsoft contract?"
@@ -3645,7 +3818,39 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
       setShowNew(true);
       setNavOpen(false);
       setIntelOpen(false);
-    } }, /* @__PURE__ */ React.createElement("span", { className: "nav-label-hide" }, "New Contract Record"), /* @__PURE__ */ React.createElement("span", { style: { display: "none" } }, "New")), /* @__PURE__ */ React.createElement("div", { className: "nav-sep" }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" }, ref: navMenuRef }, /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("span", { className: "nav-label-hide" }, "New Contract Record"), /* @__PURE__ */ React.createElement("span", { style: { display: "none" } }, "New")), (() => {
+      const pct = creditsIncluded ? Math.min(100, creditsUsed / creditsIncluded * 100) : 0;
+      const low = creditsLeft <= creditsIncluded * 0.15;
+      const out = creditsLeft <= 0;
+      return /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          title: `${creditsLeft.toLocaleString()} of ${creditsIncluded.toLocaleString()} credits left \xB7 about ${Math.floor(creditsLeft / CREDIT_COST.analysis)} more analyses`,
+          onClick: () => setShowSettings(true),
+          style: {
+            cursor: "pointer",
+            padding: "5px 11px",
+            borderRadius: 8,
+            border: "1px solid " + (out ? "rgba(224,73,62,0.55)" : low ? "rgba(238,148,32,0.5)" : "rgba(95,168,245,0.28)"),
+            background: out ? "rgba(224,73,62,0.16)" : low ? "rgba(238,148,32,0.14)" : "rgba(255,255,255,0.07)",
+            minWidth: 92
+          }
+        },
+        /* @__PURE__ */ React.createElement("div", { style: {
+          fontSize: 11.5,
+          fontWeight: 700,
+          color: "#fff",
+          fontVariantNumeric: "tabular-nums",
+          whiteSpace: "nowrap"
+        } }, creditsLeft.toLocaleString(), " / ", creditsIncluded.toLocaleString()),
+        /* @__PURE__ */ React.createElement("div", { style: { height: 3, background: "rgba(255,255,255,0.18)", borderRadius: 2, marginTop: 4, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: {
+          height: "100%",
+          width: `${pct}%`,
+          background: out ? "#E0493E" : low ? "#EE9420" : "#5FA8F5",
+          transition: "width .3s"
+        } }))
+      );
+    })(), /* @__PURE__ */ React.createElement("div", { className: "nav-sep" }), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" }, ref: navMenuRef }, /* @__PURE__ */ React.createElement(
       "div",
       {
         className: "nav-avatar" + (navOpen ? " on" : ""),
@@ -3937,7 +4142,7 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
         borderRadius: 8,
         padding: "13px 16px",
         marginBottom: 14
-      } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: "#B23A31", marginBottom: 6 } }, missed.length, " notice window", missed.length === 1 ? " has" : "s have", " already passed"), missed.map(({ c, end, daysToNotice }) => /* @__PURE__ */ React.createElement("div", { key: c.id, style: { fontSize: 12.5, color: "#6B2C26", padding: "3px 0" } }, /* @__PURE__ */ React.createElement(
+      } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: "#B23A31", marginBottom: 6 } }, missed.length, " notice window", missed.length === 1 ? " has" : "s have", " already passed"), missed.map(({ c, end, daysToNotice }) => /* @__PURE__ */ React.createElement("div", { key: c.id, style: { fontSize: 12.5, color: "#6B2C26", padding: "3px 0", overflowWrap: "anywhere" } }, /* @__PURE__ */ React.createElement(
         "a",
         {
           style: { color: "#B23A31", fontWeight: 700, cursor: "pointer" },
@@ -3954,25 +4159,45 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
         return /* @__PURE__ */ React.createElement("div", { key: i, style: {
           minWidth: 118,
           flex: "1 0 118px",
+          overflow: "hidden",
           background: i === 0 ? "#F0F6FE" : "#fff",
           border: "1px solid " + (urgent ? "#F0D6A8" : "#E1EAF6"),
           borderTop: "3px solid " + (m.items.length ? urgent ? "#EE9420" : "#2F7BD9" : "#E1EAF6"),
           borderRadius: 8,
           padding: "10px 11px",
           minHeight: 92
-        } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, fontWeight: 700, color: "#56718A", textTransform: "uppercase", letterSpacing: "0.06em" } }, m.label, m.d.getMonth() === 0 || i === 0 ? ` ${String(m.year).slice(2)}` : ""), m.items.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: "#C7D3E3", marginTop: 8 } }, "\u2014") : m.items.map(({ c, daysToNotice }) => /* @__PURE__ */ React.createElement(
-          "div",
-          {
-            key: c.id,
-            onClick: () => {
-              setSelectedId(c.id);
-              setTab("Overview");
+        } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, fontWeight: 700, color: "#56718A", textTransform: "uppercase", letterSpacing: "0.06em" } }, m.label, m.d.getMonth() === 0 || i === 0 ? ` ${String(m.year).slice(2)}` : ""), m.items.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: "#C7D3E3", marginTop: 8 } }, "\u2014") : m.items.map(({ c, daysToNotice }) => (
+          // Supplier names run long and the card is only 118px:
+          // wrap on any character, clamp to two lines, and keep
+          // the full name available on hover.
+          /* @__PURE__ */ React.createElement(
+            "div",
+            {
+              key: c.id,
+              onClick: () => {
+                setSelectedId(c.id);
+                setTab("Overview");
+              },
+              title: `${c.ref} \xB7 ${c.supplier} \u2014 ${daysToNotice} days to notice`,
+              style: { marginTop: 7, cursor: "pointer", fontSize: 11.5, lineHeight: 1.35, minWidth: 0 }
             },
-            style: { marginTop: 7, cursor: "pointer", fontSize: 11.5, lineHeight: 1.35 }
-          },
-          /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: daysToNotice <= 60 ? "#C98A1E" : "#2F7BD9" } }, c.ref),
-          /* @__PURE__ */ React.createElement("div", { style: { color: "#7A8DA6" } }, c.supplier),
-          /* @__PURE__ */ React.createElement("div", { style: { color: "#8FA3BC" } }, daysToNotice, "d")
+            /* @__PURE__ */ React.createElement("div", { style: {
+              fontWeight: 700,
+              color: daysToNotice <= 60 ? "#C98A1E" : "#2F7BD9",
+              overflowWrap: "anywhere",
+              wordBreak: "break-word"
+            } }, c.ref),
+            /* @__PURE__ */ React.createElement("div", { style: {
+              color: "#7A8DA6",
+              overflowWrap: "anywhere",
+              wordBreak: "break-word",
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden"
+            } }, c.supplier),
+            /* @__PURE__ */ React.createElement("div", { style: { color: "#8FA3BC", fontVariantNumeric: "tabular-nums" } }, daysToNotice, "d")
+          )
         )));
       })));
     })(), /* @__PURE__ */ React.createElement("div", { style: { display: contracts.length ? "flex" : "none", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "section-title" }, "Contract Records"), /* @__PURE__ */ React.createElement("div", { className: "section-sub" }, "Each record holds a contract's details, ingested documents and AI analysis. Details populate automatically from ingestion.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
@@ -4119,7 +4344,12 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
           title: readyToAnalyse ? "Documents are ingested and ready \u2014 run the analysis" : void 0
         },
         analyzing && /* @__PURE__ */ React.createElement("span", { className: "spin" }),
-        analyzing ? `Analysing\u2026 ${(_a2 = analysisStage == null ? void 0 : analysisStage.pct) != null ? _a2 : 0}%` : selected.analysis ? "Re-run AI analysis" : "Run AI analysis"
+        analyzing ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Analysing\u2026\xA0", /* @__PURE__ */ React.createElement("span", { style: {
+          fontVariantNumeric: "tabular-nums",
+          display: "inline-block",
+          minWidth: "3.4ch",
+          textAlign: "right"
+        } }, (_a2 = analysisStage == null ? void 0 : analysisStage.pct) != null ? _a2 : 0, "%")) : selected.analysis ? "Re-run AI analysis" : "Run AI analysis"
       );
     })(), currentUser.role === "Admin" && /* @__PURE__ */ React.createElement("button", { className: "btn ghost sm", style: { color: "#c0271d", borderColor: "rgba(192,39,29,0.4)" }, onClick: () => {
       if (window.confirm(`Permanently delete ${selected.ref} (${selected.supplier}) and all its documents and analysis? This cannot be undone.`)) {
@@ -4127,13 +4357,20 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
         setSelectedId(null);
         notify("Contract Record and all associated data deleted");
       }
-    } }, "Delete record")), analyzing && analysisStage && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16, maxWidth: 560 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 7 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: "#16283E" } }, analysisStage.step ? `Step ${analysisStage.step} of ${analysisStage.of} \xB7 ` : "", analysisStage.label, "\u2026"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: "#2F7BD9" } }, analysisStage.pct, "%")), /* @__PURE__ */ React.createElement("div", { style: { height: 7, background: "#EEF3FA", borderRadius: 4, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: {
+    } }, "Delete record")), analyzing && analysisStage && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16, maxWidth: 560 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 7 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: "#16283E" } }, analysisStage.step ? `Step ${analysisStage.step} of ${analysisStage.of} \xB7 ` : "", analysisStage.label, "\u2026"), /* @__PURE__ */ React.createElement("span", { style: {
+      fontSize: 13,
+      fontWeight: 700,
+      color: "#2F7BD9",
+      fontVariantNumeric: "tabular-nums",
+      minWidth: "3.4ch",
+      textAlign: "right"
+    } }, analysisStage.pct, "%")), /* @__PURE__ */ React.createElement("div", { style: { height: 7, background: "#EEF3FA", borderRadius: 4, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: {
       height: "100%",
       width: `${analysisStage.pct}%`,
       borderRadius: 4,
       background: "linear-gradient(90deg,#2F7BD9,#5FA8F5)",
       transition: "width .45s ease"
-    } })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: "#7A8DA6", marginTop: 7 } }, "Reading ", (selected.documents || []).filter((d) => d.text && !d.purged).length, " document(s). This usually takes 30 to 60 seconds \u2014 you can leave this page open.")), !analyzing && ((_d = (_c = selected.analysis) == null ? void 0 : _c.partial) == null ? void 0 : _d.length) > 0 && /* @__PURE__ */ React.createElement("div", { style: {
+    } })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: "#7A8DA6", marginTop: 7 } }, "Reading ", (selected.documents || []).filter((d) => d.text && !d.purged).length, " document(s). This usually takes 30 to 60 seconds \u2014 you can leave this page open.")), !analyzing && !analysisError && ((_d = (_c = selected.analysis) == null ? void 0 : _c.partial) == null ? void 0 : _d.length) > 0 && /* @__PURE__ */ React.createElement("div", { style: {
       marginTop: 16,
       maxWidth: 700,
       background: "#FDF6E8",
@@ -4296,14 +4533,83 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
         style: { opacity: consentTicked ? 1 : 0.45, cursor: consentTicked ? "pointer" : "not-allowed" }
       },
       "Accept and upload"
-    )))), cedricOpen && /* @__PURE__ */ React.createElement("div", { className: "cedric" }, /* @__PURE__ */ React.createElement("div", { className: "cedric-head" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("b", null, "\u2726 Cedric"), /* @__PURE__ */ React.createElement("div", { className: "sc" }, selected ? `Scope: ${selected.ref} \xB7 ${selected.supplier}` : "Name a contract (ref, name or supplier) to begin")), /* @__PURE__ */ React.createElement("button", { onClick: () => setCedricOpen(false) }, "\u2715")), /* @__PURE__ */ React.createElement("div", { className: "cedric-msgs" }, cedricMsgs.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "cmsg bot" }, "Hello ", currentUser.displayName.split(" ")[0], " \u2014 I'm Cedric. To keep answers accurate, I only recall a contract you name: include its ref, name or supplier in your question", selected ? " (this open record counts, so ask away)" : "", ". Costs, renewal dates, risks, missing clauses, what to push for in negotiation \u2014 I answer only from what's been ingested and analysed."), cedricMsgs.map((m, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: `cmsg ${m.role === "user" ? "user" : "bot"}` }, m.text)), cedricBusy && /* @__PURE__ */ React.createElement("div", { className: "cmsg bot" }, /* @__PURE__ */ React.createElement("span", { className: "spin b", style: { marginRight: 8 } }), "Thinking\u2026"), /* @__PURE__ */ React.createElement("div", { ref: cedricEnd })), cedricMsgs.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "cedric-sugs" }, (selected ? ["When does this contract renew?", "Biggest saving opportunity?", "What are the high risks?"] : contracts.slice(0, 3).map((c) => `What's the position on ${c.ref}?`)).map((s) => /* @__PURE__ */ React.createElement("button", { key: s, onClick: () => sendCedric(s) }, s))), /* @__PURE__ */ React.createElement("div", { className: "cedric-input" }, /* @__PURE__ */ React.createElement(
+    )))), cedricOpen && /* @__PURE__ */ React.createElement("div", { className: "cedric" }, /* @__PURE__ */ React.createElement("div", { className: "cedric-head" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("b", null, "\u2726 Cedric"), /* @__PURE__ */ React.createElement("div", { className: "sc" }, selected ? `Scope: ${selected.ref} \xB7 ${selected.supplier}` : "Name a contract (ref, name or supplier) to begin")), /* @__PURE__ */ React.createElement("button", { onClick: () => setCedricOpen(false) }, "\u2715")), /* @__PURE__ */ React.createElement("div", { className: "cedric-msgs" }, cedricMsgs.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "cmsg bot" }, "Hello ", currentUser.displayName.split(" ")[0], " \u2014 I'm Cedric. To keep answers accurate, I only recall a contract you name: include its ref, name or supplier in your question", selected ? " (this open record counts, so ask away)" : "", ". Costs, renewal dates, risks, missing clauses, what to push for in negotiation \u2014 I answer only from what's been ingested and analysed."), cedricMsgs.map((m, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: `cmsg ${m.role === "user" ? "user" : "bot"}` }, m.text)), cedricBusy && /* @__PURE__ */ React.createElement("div", { className: "cmsg bot" }, /* @__PURE__ */ React.createElement("span", { className: "spin b", style: { marginRight: 8 } }), "Thinking\u2026"), /* @__PURE__ */ React.createElement("div", { ref: cedricEnd })), pendingAction && !selected && /* @__PURE__ */ React.createElement("div", { style: { padding: "12px 14px", borderTop: "1px solid #E1EAF6", background: "#F7FAFE" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "#3D4F66", marginBottom: 4 } }, "Which contract should I look at for"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "#0B1D33", marginBottom: 10 } }, "\u201C", pendingAction.title, "\u201D?"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6, maxHeight: 190, overflowY: "auto" } }, contracts.slice(0, 12).map((c) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: c.id,
+        className: "btn ghost sm",
+        style: { textAlign: "left", justifyContent: "flex-start" },
+        onClick: () => {
+          const q = pendingAction.prompt;
+          setPendingAction(null);
+          setSelectedId(c.id);
+          setPage("portfolio");
+          sendCedric(q, c);
+        }
+      },
+      c.ref,
+      " \xB7 ",
+      c.supplier
+    ))), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "btn ghost sm",
+        style: { marginTop: 8 },
+        onClick: () => setPendingAction(null)
+      },
+      "Cancel"
+    )), cedricMsgs.length === 0 && !pendingAction && /* @__PURE__ */ React.createElement("div", { className: "cedric-sugs" }, (selected ? ["When does this contract renew?", "Biggest saving opportunity?", "What are the high risks?"] : contracts.slice(0, 3).map((c) => `What's the position on ${c.ref}?`)).map((s) => /* @__PURE__ */ React.createElement("button", { key: s, onClick: () => sendCedric(s) }, s))), voiceNote && /* @__PURE__ */ React.createElement("div", { style: {
+      padding: "8px 14px",
+      fontSize: 12,
+      color: "#8A5A0E",
+      background: "#FDF6E8",
+      borderTop: "1px solid #EBD9AE"
+    } }, voiceNote), /* @__PURE__ */ React.createElement("div", { className: "cedric-input" }, /* @__PURE__ */ React.createElement(
       "input",
       {
         value: cedricInput,
         onChange: (e) => setCedricInput(e.target.value),
         onKeyDown: (e) => e.key === "Enter" && sendCedric(),
-        placeholder: "Ask Cedric anything about a contract\u2026"
+        placeholder: listening ? "Listening\u2026 speak now" : "Ask Cedric anything about a contract\u2026"
       }
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        onClick: toggleVoice,
+        disabled: cedricBusy,
+        "aria-label": listening ? "Stop listening" : "Ask by voice",
+        title: listening ? "Stop listening" : "Ask by voice",
+        style: {
+          width: 38,
+          height: 38,
+          borderRadius: "50%",
+          flexShrink: 0,
+          cursor: "pointer",
+          border: "1.5px solid " + (listening ? "#E0493E" : "#D6E3F5"),
+          background: listening ? "#FDEEEC" : "#fff",
+          color: listening ? "#E0493E" : "#7A8DA6",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          animation: listening ? "ciqpulse 1.3s ease-in-out infinite" : "none"
+        }
+      },
+      /* @__PURE__ */ React.createElement(
+        "svg",
+        {
+          width: "16",
+          height: "16",
+          viewBox: "0 0 24 24",
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: "2",
+          strokeLinecap: "round",
+          strokeLinejoin: "round"
+        },
+        /* @__PURE__ */ React.createElement("rect", { x: "9", y: "2", width: "6", height: "12", rx: "3" }),
+        /* @__PURE__ */ React.createElement("path", { d: "M5 10v1a7 7 0 0 0 14 0v-1M12 19v3" })
+      )
     ), /* @__PURE__ */ React.createElement("button", { className: "btn sm", disabled: cedricBusy, onClick: () => sendCedric() }, "Send"))), showNew && /* @__PURE__ */ React.createElement("div", { className: "modal-bg", onClick: (e) => e.target === e.currentTarget && setShowNew(false) }, /* @__PURE__ */ React.createElement("div", { className: "modal", style: { width: 460 } }, /* @__PURE__ */ React.createElement("h2", null, "New Contract Record"), /* @__PURE__ */ React.createElement("div", { className: "mh" }, "Just two details to start \u2014 everything else (value, term, dates, users, category) is extracted automatically when you ingest the contract's documents and run analysis."), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Contract Ref"), /* @__PURE__ */ React.createElement("input", { value: form.ref, onChange: (e) => setForm((p) => ({ ...p, ref: e.target.value })), placeholder: "e.g. CTR-0004", autoFocus: true })), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Supplier"), /* @__PURE__ */ React.createElement("input", { value: form.supplier, onChange: (e) => setForm((p) => ({ ...p, supplier: e.target.value })), onKeyDown: (e) => e.key === "Enter" && createRecord(), placeholder: "e.g. Microsoft" })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "btn ghost", onClick: () => setShowNew(false) }, "Cancel"), /* @__PURE__ */ React.createElement("button", { className: "btn", onClick: createRecord }, "Create record")))), showSettings && /* @__PURE__ */ React.createElement("div", { className: "modal-bg", onClick: (e) => e.target === e.currentTarget && setShowSettings(false) }, /* @__PURE__ */ React.createElement("div", { className: "modal", style: { width: 560 } }, /* @__PURE__ */ React.createElement("h2", null, "Settings"), /* @__PURE__ */ React.createElement("div", { className: "mh" }, "Your edition, workspace connection and business-account users."), /* @__PURE__ */ React.createElement("div", { style: { background: "#F5F9FE", borderLeft: "4px solid #2F7BD9", borderRadius: 6, padding: "18px 20px", marginBottom: 18 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 } }, /* @__PURE__ */ React.createElement("b", { style: { fontSize: 16, color: "#0B1D33" } }, ED.name), /* @__PURE__ */ React.createElement("span", { className: "pill blue", style: { marginTop: 0 } }, ED.price)), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12, fontSize: 13, fontWeight: 700, color: "#56718A", textTransform: "uppercase", letterSpacing: "0.1em" } }, "Credit balance"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 15, fontWeight: 700, marginTop: 4 } }, creditsUsed, " of ", creditsIncluded.toLocaleString(), " used ", ED.windowLabel, " \xB7 ", creditsLeft.toLocaleString(), " remaining"), /* @__PURE__ */ React.createElement("div", { style: { height: 7, background: "#DDE9F8", borderRadius: 4, marginTop: 8, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: `${Math.min(100, creditsUsed / creditsIncluded * 100)}%`, background: creditsLeft === 0 ? "#E0493E" : creditsLeft < creditsIncluded * 0.15 ? "#EE9420" : "#2F7BD9" } })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#56718A", marginTop: 8 } }, "That is about ", /* @__PURE__ */ React.createElement("b", null, analysesLeft), " more analyses, or ", /* @__PURE__ */ React.createElement("b", null, Math.floor(creditsLeft / CREDIT_COST.cedric)), " more questions to Cedric. An analysis costs ", CREDIT_COST.analysis, " credits, a question costs ", CREDIT_COST.cedric, ", and re-running an analysis inside the revision window is free."), /* @__PURE__ */ React.createElement("ul", { style: { margin: "14px 0 0", paddingLeft: 18, fontSize: 13.5, color: "#3D4F66", lineHeight: 1.7 } }, ED.features.map((f, i) => /* @__PURE__ */ React.createElement("li", { key: i }, f))), EDITION !== "enterprise" && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12.5, color: "#56718A", marginTop: 12 } }, "Need more? ", EDITION === "sandbox" ? "Growth adds 15 audits a month, custom playbooks and advanced cross-clause logic." : "Enterprise adds custom volume, Zero-Retention, dedicated API keys and corporate SSO.")), /* @__PURE__ */ React.createElement("div", { className: "fld" }, /* @__PURE__ */ React.createElement("label", null, "Supabase project URL"), /* @__PURE__ */ React.createElement(
       "input",
       {
