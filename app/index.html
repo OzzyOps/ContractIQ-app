@@ -341,6 +341,95 @@ setTimeout(function(){
       };
     }).sort((a, b) => b.score - a.score);
   }
+  function supplierTimeline(contracts, supplierKey) {
+    var _a, _b, _c;
+    const mine = contracts.filter((c) => normaliseSupplier(c.supplier) === supplierKey);
+    const ev = [];
+    const push = (date, kind, title, detail, ct) => {
+      const d = date ? new Date(date) : null;
+      if (!d || isNaN(d)) return;
+      ev.push({ date: d, kind, title, detail, ref: ct == null ? void 0 : ct.ref, contractId: ct == null ? void 0 : ct.id });
+    };
+    for (const c of mine) {
+      push(c.startDate, "start", `${c.ref} begins`, `${c.name || c.category || "Agreement"} commences.`, c);
+      for (const d of c.documents || []) {
+        const isTx = /transcript|\.vtt|\.srt/i.test(`${d.type || ""} ${d.name || ""}`);
+        push(
+          d.uploadedAt || d.addedAt,
+          isTx ? "transcript" : "doc",
+          isTx ? `Meeting recorded \u2014 ${d.name}` : `Document added \u2014 ${d.name}`,
+          isTx ? "Transcript ingested against this contract." : `${d.type || "Document"} ingested.`,
+          c
+        );
+      }
+      for (const v of ((_b = (_a = c.analysis) == null ? void 0 : _a.knowledge) == null ? void 0 : _b.verbalCommitments) || []) {
+        push(
+          ((_c = c.analysis) == null ? void 0 : _c.analysedAt) || c.updatedAt,
+          "commitment",
+          `Verbal: ${String(v.commitment || "").slice(0, 70)}`,
+          `${v.saidBy || "Unattributed"} \xB7 ${v.inContract === "no" ? "NOT in the contract" : v.inContract === "yes" ? "reflected in the contract" : "unclear whether papered"}`,
+          c
+        );
+      }
+      if (c.analysis) {
+        push(
+          c.analysis.analysedAt || c.updatedAt,
+          "analysis",
+          `${c.ref} analysed`,
+          `Grade ${c.analysis.riskGrade || "?"}${c.analysis.healthScore != null ? ` \xB7 health ${c.analysis.healthScore}/100` : ""}.`,
+          c
+        );
+      }
+      if (c.endDate) {
+        const end = new Date(c.endDate);
+        const notice = new Date(end.getTime() - (c.noticePeriodDays || 90) * 864e5);
+        const missed = notice < /* @__PURE__ */ new Date();
+        push(
+          notice,
+          missed ? "missed" : "notice",
+          missed ? `NOTICE WINDOW MISSED \u2014 ${c.ref}` : `Notice deadline \u2014 ${c.ref}`,
+          missed ? `This window closed ${Math.round((Date.now() - notice) / 864e5)} days ago.` + (c.autoRenew ? " The contract has auto-renewed or will do." : "") : `Last day to serve notice.${c.autoRenew ? " Auto-renews if missed." : ""}`,
+          c
+        );
+        push(end, "end", `${c.ref} term ends`, `${c.autoRenew ? "Renews automatically unless notice served." : "Expires."}`, c);
+      }
+    }
+    ev.sort((a, b) => a.date - b.date);
+    return { contracts: mine, events: ev };
+  }
+  function buildGlossary(contracts) {
+    var _a;
+    const map = /* @__PURE__ */ new Map();
+    for (const c of contracts) {
+      for (const t of ((_a = c.analysis) == null ? void 0 : _a.plainTerms) || []) {
+        const term = String((t == null ? void 0 : t.term) || "").trim();
+        const means = String((t == null ? void 0 : t.means) || "").trim();
+        if (!term || !means) continue;
+        const key = term.toLowerCase();
+        if (!map.has(key)) map.set(key, { term, means, seenIn: [] });
+        const e = map.get(key);
+        if (means.length > e.means.length) e.means = means;
+        if (!e.seenIn.some((x) => x.id === c.id)) e.seenIn.push({ id: c.id, ref: c.ref, supplier: c.supplier });
+      }
+    }
+    return [...map.values()].sort((a, b) => a.term.localeCompare(b.term));
+  }
+  const BASE_GLOSSARY = [
+    { term: "Auto-renewal (evergreen)", means: "The contract renews itself for another term unless you actively give notice. Miss the window and you are committed for another full period." },
+    { term: "Consideration", means: "Something of value each side gives. Usually money one way and services the other. Without it there is no binding contract." },
+    { term: "Force majeure", means: "Events outside anyone's control \u2014 floods, war, some strikes \u2014 that excuse a party from performing. Check whether it covers supplier failure or only true disasters." },
+    { term: "Indemnity", means: "A promise to cover someone else's losses if a specific thing goes wrong. Broader than normal damages, and it can sit outside the liability cap." },
+    { term: "Liability cap", means: "The maximum either side can be made to pay if things go wrong. Often twelve months' fees. Check what is excluded from it." },
+    { term: "Liquidated damages", means: "A fixed sum agreed in advance for a specific failure, so nobody has to prove the actual loss." },
+    { term: "Notice period", means: "How far in advance you must tell the other side you are leaving. The date you must act by, not the date the contract ends." },
+    { term: "Novation", means: "Transferring the whole contract to a different company, with everyone's agreement. Different from assignment, which moves rights but not obligations." },
+    { term: "Order of precedence", means: "Which document wins when two of them disagree. Usually the main agreement beats a schedule, which beats a purchase order." },
+    { term: "Service credits", means: "Money back when the supplier misses agreed service levels. Often the only remedy, so check whether they are your sole recourse." },
+    { term: "Severability", means: "If one clause turns out to be unenforceable, the rest of the contract survives rather than the whole thing collapsing." },
+    { term: "Uplift / indexation", means: "The annual price rise. Often linked to CPI or RPI plus a percentage. Ask whether it is capped \u2014 uncapped uplift compounds." },
+    { term: "Change of control", means: "What happens if one side is bought. May give the other party a right to terminate, which matters when a supplier is acquired." },
+    { term: "Exit assistance", means: "Help moving to a new supplier at the end. Check how many days, and whether it is chargeable and at what rate." }
+  ];
   const obligationKey = (contractId, i) => `${contractId}::${i}`;
   function allObligations(contracts, tracking) {
     var _a;
@@ -824,6 +913,13 @@ setTimeout(function(){
   const SAMPLE_ANALYSIS = {
     // Every data point carries a confidence score, the reasoning behind it, and a
     // traceable reference back to the source document. Scores drive H-I-L routing.
+    plainTerms: [
+      { term: "Evergreen renewal", means: "It renews itself every year unless you actively give notice in time." },
+      { term: "Uplift (CPI + 3%)", means: "The price rises each year by inflation plus three percent, and it compounds." },
+      { term: "Liability cap", means: "The most either side can be made to pay if things go wrong \u2014 here, twelve months' fees." },
+      { term: "Service credits", means: "Money back when they miss the agreed service levels. Check whether it is your only remedy." },
+      { term: "Minimum commitment", means: "A floor on what you must buy, whether or not you use it." }
+    ],
     dataPoints: [
       { field: "annualValue", kind: "extraction", value: "\xA31,450,000", confidence: 94, reasoning: "Stated as a single annual figure in the commercial schedule with no conflicting value elsewhere.", sourceRef: "Microsoft_Enterprise_Agreement.pdf \u2014 'Annual Charges: GBP 1,450,000'" },
       { field: "endDate", kind: "extraction", value: "2027-03-31", confidence: 96, reasoning: "Explicit term end date in the signature schedule.", sourceRef: "Microsoft_Enterprise_Agreement.pdf \u2014 'expiring 31 March 2027'" },
@@ -1986,32 +2082,105 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
     el.download = `ContractIQ_${ct.ref}_slides.txt`.replace(/\s+/g, "_");
     el.click();
   }
-  function exportICS(ct) {
+  function icsEscape(t) {
+    return String(t != null ? t : "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+  }
+  function icsEventsFor(ct) {
+    var _a, _b, _c, _d;
+    if (!ct.endDate) return [];
     const end = new Date(ct.endDate);
-    const notice = new Date(end.getTime() - (ct.noticePeriodDays || 90) * 864e5);
-    const fmt = (d) => d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
-    const ics = [
-      "BEGIN:VCALENDAR",
-      "VERSION:2.0",
-      "PRODID:-//ContractIQ//EN",
+    if (isNaN(end)) return [];
+    const days = ct.noticePeriodDays || 90;
+    const notice = new Date(end.getTime() - days * 864e5);
+    const weeks = Number((_b = (_a = ct.analysis) == null ? void 0 : _a.insights) == null ? void 0 : _b.reviewLeadTimeWeeks) || 12;
+    const stated = (_d = (_c = ct.analysis) == null ? void 0 : _c.insights) == null ? void 0 : _d.reviewStartDate;
+    const review = stated && !isNaN(new Date(stated)) ? new Date(stated) : new Date(notice.getTime() - weeks * 7 * 864e5);
+    const day = (d) => d.toISOString().split("T")[0].replace(/-/g, "");
+    const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+    const ev = [];
+    ev.push([
       "BEGIN:VEVENT",
-      `UID:${ct.id}@contractiq`,
-      `DTSTAMP:${fmt(/* @__PURE__ */ new Date())}`,
-      `DTSTART:${fmt(notice)}`,
-      `SUMMARY:Serve notice \u2014 ${ct.ref} ${ct.supplier} (ContractIQ)`,
-      `DESCRIPTION:Contract "${ct.name || ct.ref}" ends ${ct.endDate}. Notice period ${ct.noticePeriodDays || 90} days \u2014 this is the deadline. Review the negotiation plan in ContractIQ well before today.`,
+      `UID:${ct.id}-notice@contractiq`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART;VALUE=DATE:${day(notice)}`,
+      `DTEND;VALUE=DATE:${day(new Date(notice.getTime() + 864e5))}`,
+      `SUMMARY:${icsEscape(`NOTICE DEADLINE \u2014 ${ct.ref} ${ct.supplier}`)}`,
+      `DESCRIPTION:${icsEscape(
+        `Last day to serve notice on ${ct.name || ct.ref}.
+
+Term ends ${ct.endDate}. Notice period ${days} days.` + (ct.autoRenew ? `
+
+This contract AUTO-RENEWS if notice is not served.` : "") + `
+
+Raised by ContractIQ.`
+      )}`,
+      "TRANSP:TRANSPARENT",
+      // Three warnings, not one. Ninety days out is when a review still has
+      // room to change the outcome.
+      "BEGIN:VALARM",
+      "TRIGGER:-P90D",
+      "ACTION:DISPLAY",
+      `DESCRIPTION:${icsEscape(`90 days to notice deadline \u2014 ${ct.ref}`)}`,
+      "END:VALARM",
       "BEGIN:VALARM",
       "TRIGGER:-P30D",
       "ACTION:DISPLAY",
-      `DESCRIPTION:30 days to notice deadline \u2014 ${ct.ref}`,
+      `DESCRIPTION:${icsEscape(`30 days to notice deadline \u2014 ${ct.ref}`)}`,
       "END:VALARM",
-      "END:VEVENT",
+      "BEGIN:VALARM",
+      "TRIGGER:-P7D",
+      "ACTION:DISPLAY",
+      `DESCRIPTION:${icsEscape(`ONE WEEK to notice deadline \u2014 ${ct.ref}`)}`,
+      "END:VALARM",
+      "END:VEVENT"
+    ].join("\r\n"));
+    ev.push([
+      "BEGIN:VEVENT",
+      `UID:${ct.id}-review@contractiq`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART;VALUE=DATE:${day(review)}`,
+      `DTEND;VALUE=DATE:${day(new Date(review.getTime() + 864e5))}`,
+      `SUMMARY:${icsEscape(`Start renewal review \u2014 ${ct.ref} ${ct.supplier}`)}`,
+      `DESCRIPTION:${icsEscape(
+        `Begin the renewal review now to be ready for the notice deadline on ${notice.toISOString().split("T")[0]}.
+
+Benchmark the rates, gather the stakeholders, and decide the position before you have to serve notice.
+
+Raised by ContractIQ.`
+      )}`,
+      "TRANSP:TRANSPARENT",
+      "BEGIN:VALARM",
+      "TRIGGER:-P7D",
+      "ACTION:DISPLAY",
+      `DESCRIPTION:${icsEscape(`Renewal review for ${ct.ref} starts next week`)}`,
+      "END:VALARM",
+      "END:VEVENT"
+    ].join("\r\n"));
+    return ev;
+  }
+  function downloadICS(events, filename) {
+    if (!events.length) return false;
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//ContractIQ//Renewals//EN",
+      "CALSCALE:GREGORIAN",
+      "METHOD:PUBLISH",
+      ...events,
       "END:VCALENDAR"
     ].join("\r\n");
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([ics], { type: "text/calendar" }));
-    a.download = `${ct.ref}_notice_deadline.ics`.replace(/\s+/g, "_");
+    a.href = URL.createObjectURL(new Blob([ics], { type: "text/calendar;charset=utf-8" }));
+    a.download = filename.replace(/\s+/g, "_");
     a.click();
+    return true;
+  }
+  function exportICS(ct) {
+    return downloadICS(icsEventsFor(ct), `${ct.ref}_renewal_reminders.ics`);
+  }
+  function exportAllRenewals(contracts) {
+    const events = contracts.flatMap((c) => icsEventsFor(c));
+    return downloadICS(events, `ContractIQ_all_renewals_${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}.ics`);
   }
   function exportDigest(contracts) {
     const withA = contracts.filter((c) => c.analysis);
@@ -2307,6 +2476,9 @@ ${a.insights.recommendations.map((x) => "\u2022 " + x).join("\n")}`
     const [cedricMsgs, setCedricMsgs] = useState([]);
     const [cedricInput, setCedricInput] = useState("");
     const [pendingAction, setPendingAction] = useState(null);
+    const [glossaryQuery, setGlossaryQuery] = useState("");
+    const [timelineFor, setTimelineFor] = useState(null);
+    const [confFilter, setConfFilter] = useState("all");
     const [listening, setListening] = useState(false);
     const [voiceNote, setVoiceNote] = useState(null);
     const [voiceAccepted, setVoiceAccepted] = useState(false);
@@ -3727,7 +3899,7 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
     ), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" }, ref: intelRef }, /* @__PURE__ */ React.createElement(
       "div",
       {
-        className: "nav-item" + (["suppliers", "vendorrisk", "obligations", "clauses", "knowledge"].includes(page) ? " on" : ""),
+        className: "nav-item" + (["suppliers", "vendorrisk", "obligations", "clauses", "knowledge", "glossary", "timeline"].includes(page) ? " on" : ""),
         onClick: () => {
           setIntelOpen((o) => !o);
           setNavOpen(false);
@@ -3760,7 +3932,9 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
       ["vendorrisk", "Vendor risk", "Exposure if a supplier fails"],
       ["obligations", "Obligations", "Every commitment, with an owner"],
       ["clauses", "Clause matrix", "Every contract against every clause"],
-      ["knowledge", "Knowledge", "What your people never wrote down"]
+      ["knowledge", "Knowledge", "What your people never wrote down"],
+      ["glossary", "Plain English", "Legal jargon, translated"],
+      ["timeline", "Supplier timeline", "The whole history on one line"]
     ].map(([key, label, blurb]) => /* @__PURE__ */ React.createElement(
       "div",
       {
@@ -3993,6 +4167,149 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
         },
         c.ref
       ))), /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 10px", borderBottom: "1px solid #EEF3FA", textAlign: "right", fontWeight: 700 } }, fmtMoney(g.spend)), /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 10px", borderBottom: "1px solid #EEF3FA", color: "#56718A" } }, g.categories.join(", ") || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 10px", borderBottom: "1px solid #EEF3FA", textAlign: "right" } }, g.worstGrade ? /* @__PURE__ */ React.createElement("span", { className: `pill ${grade(g.worstGrade)}`, style: { marginTop: 0 } }, g.worstGrade) : /* @__PURE__ */ React.createElement("span", { style: { color: "#C7D3E3" } }, "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 10px", borderBottom: "1px solid #EEF3FA", textAlign: "right", color: g.savings ? "#1d7a3a" : "#C7D3E3", fontWeight: 700 } }, g.savings ? fmtMoney(g.savings) : "\u2014")))))))));
+    })() : page === "glossary" ? (() => {
+      const fromContracts = buildGlossary(contracts);
+      const seen = new Set(fromContracts.map((t) => t.term.toLowerCase()));
+      const base = BASE_GLOSSARY.filter((t) => !seen.has(t.term.toLowerCase()));
+      const all = [...fromContracts, ...base.map((t) => ({ ...t, seenIn: [] }))].sort((a, b) => a.term.localeCompare(b.term));
+      const q = glossaryQuery.trim().toLowerCase();
+      const shown = q ? all.filter((t) => t.term.toLowerCase().includes(q) || t.means.toLowerCase().includes(q)) : all;
+      return /* @__PURE__ */ React.createElement("div", { className: "container" }, /* @__PURE__ */ React.createElement("h1", { style: { fontSize: 30, fontWeight: 700, marginBottom: 6 } }, "Plain English"), /* @__PURE__ */ React.createElement("p", { style: { color: "#56718A", marginBottom: 20, maxWidth: 760 } }, "Contract language, translated. Terms found in your own contracts appear first with the agreements they came from; the rest are the ones people most often trip over."), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          value: glossaryQuery,
+          onChange: (e) => setGlossaryQuery(e.target.value),
+          placeholder: "Search terms \u2014 try 'indemnity' or 'uplift'",
+          style: {
+            border: "1.5px solid #D6E3F5",
+            borderRadius: 8,
+            padding: "10px 15px",
+            fontSize: 13.5,
+            fontFamily: "inherit",
+            fontWeight: 500,
+            width: "100%",
+            maxWidth: 420,
+            marginBottom: 20,
+            outline: "none"
+          }
+        }
+      ), fromContracts.length === 0 && /* @__PURE__ */ React.createElement("div", { style: {
+        background: "#F5F9FE",
+        border: "1px solid #C8DCF5",
+        borderRadius: 8,
+        padding: "12px 15px",
+        fontSize: 12.5,
+        color: "#3D4F66",
+        marginBottom: 20,
+        maxWidth: 760
+      } }, "Analyse a contract and the specific jargon ", /* @__PURE__ */ React.createElement("i", null, "it"), " uses is added here automatically, defined in the context of your own agreement rather than in the abstract."), shown.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "Nothing matches \u201C", glossaryQuery, "\u201D"), /* @__PURE__ */ React.createElement("p", null, "Try a shorter word, or clear the search.")) : /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 13 } }, shown.map((t) => /* @__PURE__ */ React.createElement("div", { key: t.term, style: {
+        border: "1px solid #E1EAF6",
+        borderRadius: 9,
+        padding: "15px 17px",
+        background: "#fff",
+        borderLeft: t.seenIn.length ? "3px solid #37D5C3" : "3px solid #E1EAF6"
+      } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14.5, fontWeight: 700, color: "#0B1D33", marginBottom: 6 } }, t.term), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "#3D4F66", lineHeight: 1.6 } }, t.means), t.seenIn.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 11, display: "flex", gap: 6, flexWrap: "wrap" } }, t.seenIn.slice(0, 4).map((x) => /* @__PURE__ */ React.createElement(
+        "a",
+        {
+          key: x.id,
+          onClick: () => {
+            setSelectedId(x.id);
+            setPage("portfolio");
+          },
+          style: {
+            fontSize: 11,
+            fontWeight: 700,
+            color: "#12796B",
+            background: "#E4F8F4",
+            borderRadius: 100,
+            padding: "3px 9px",
+            cursor: "pointer"
+          }
+        },
+        x.ref
+      )))))), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11.5, color: "#8FA3BC", marginTop: 22, maxWidth: 760, lineHeight: 1.6 } }, "These explanations are written to be understood, not to be relied on. They are not legal advice, and a term can mean something different in the specific contract you are reading."));
+    })() : page === "timeline" ? (() => {
+      var _a2;
+      const groups = supplierIntelligence(contracts).list;
+      const key = timelineFor || ((_a2 = groups[0]) == null ? void 0 : _a2.key);
+      const data = key ? supplierTimeline(contracts, key) : { contracts: [], events: [] };
+      const g = groups.find((x) => x.key === key);
+      const ICON = {
+        start: ["#2F7BD9", "\u25B6"],
+        doc: ["#7A8DA6", "\u25A4"],
+        transcript: ["#7B4FBF", "\u25CE"],
+        commitment: ["#C98A1E", "\u2691"],
+        analysis: ["#12796B", "\u2713"],
+        notice: ["#EE9420", "\u26A0"],
+        missed: ["#E0493E", "\u2716"],
+        end: ["#0B1D33", "\u25A0"]
+      };
+      const now = /* @__PURE__ */ new Date();
+      return /* @__PURE__ */ React.createElement("div", { className: "container" }, /* @__PURE__ */ React.createElement("h1", { style: { fontSize: 30, fontWeight: 700, marginBottom: 6 } }, "Supplier timeline"), /* @__PURE__ */ React.createElement("p", { style: { color: "#56718A", marginBottom: 20, maxWidth: 780 } }, "Everything you hold about one supplier, in order. No single document shows you the pattern \u2014 an outage, then a concession, then a change of account manager, then the concession quietly forgotten. The sequence does."), groups.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "No suppliers yet"), /* @__PURE__ */ React.createElement("p", null, "Add contract records and their history appears here as one line."), /* @__PURE__ */ React.createElement("button", { className: "btn", style: { marginTop: 14 }, onClick: () => setPage("portfolio") }, "Go to your contracts")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 22 } }, groups.map((x) => /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          key: x.key,
+          onClick: () => setTimelineFor(x.key),
+          style: {
+            border: "1.5px solid " + (x.key === key ? "#2F7BD9" : "#D6E3F5"),
+            background: x.key === key ? "#2F7BD9" : "#fff",
+            color: x.key === key ? "#fff" : "#56718A",
+            borderRadius: 100,
+            padding: "7px 14px",
+            fontSize: 12.5,
+            fontWeight: 700,
+            fontFamily: "inherit",
+            cursor: "pointer"
+          }
+        },
+        x.names[0],
+        x.count > 1 ? ` (${x.count})` : ""
+      ))), g && /* @__PURE__ */ React.createElement("div", { className: "grid4", style: { marginBottom: 22 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "Contracts"), /* @__PURE__ */ React.createElement("div", { className: "x" }, g.count)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "Annual spend"), /* @__PURE__ */ React.createElement("div", { className: "x" }, fmtMoney(g.spend))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "Events on record"), /* @__PURE__ */ React.createElement("div", { className: "x" }, data.events.length)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "k" }, "Unpapered commitments"), /* @__PURE__ */ React.createElement("div", { className: "x", style: { color: data.events.filter((e) => e.kind === "commitment").length ? "#C98A1E" : "#2E9E6B" } }, data.events.filter((e) => e.kind === "commitment").length))), data.events.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "empty" }, /* @__PURE__ */ React.createElement("h3", null, "Nothing dated yet"), /* @__PURE__ */ React.createElement("p", null, "Ingest documents and run an analysis, and the history builds itself.")) : /* @__PURE__ */ React.createElement("div", { style: { position: "relative", paddingLeft: 30 } }, /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", left: 9, top: 6, bottom: 6, width: 2, background: "#E1EAF6" } }), data.events.map((e, i) => {
+        const [col, glyph] = ICON[e.kind] || ["#7A8DA6", "\u25CF"];
+        const future = e.date > now;
+        return /* @__PURE__ */ React.createElement("div", { key: i, style: { position: "relative", marginBottom: 18, opacity: future ? 0.85 : 1 } }, /* @__PURE__ */ React.createElement("div", { style: {
+          position: "absolute",
+          left: -30,
+          top: 1,
+          width: 20,
+          height: 20,
+          borderRadius: "50%",
+          background: future ? "#fff" : col,
+          border: `2px solid ${col}`,
+          color: future ? col : "#fff",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 10
+        } }, glyph), /* @__PURE__ */ React.createElement("div", { style: {
+          fontSize: 11.5,
+          color: "#8FA3BC",
+          fontWeight: 700,
+          fontVariantNumeric: "tabular-nums"
+        } }, e.date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }), future && /* @__PURE__ */ React.createElement("span", { style: { color: col, marginLeft: 8 } }, "upcoming")), /* @__PURE__ */ React.createElement("div", { style: {
+          fontSize: e.kind === "missed" ? 14.5 : 13.5,
+          fontWeight: 700,
+          color: e.kind === "missed" ? "#B23A31" : "#16283E",
+          marginTop: 2,
+          overflowWrap: "anywhere"
+        } }, e.title), /* @__PURE__ */ React.createElement("div", { style: {
+          fontSize: 12.5,
+          color: "#56718A",
+          marginTop: 2,
+          lineHeight: 1.55,
+          overflowWrap: "anywhere"
+        } }, e.detail), e.contractId && /* @__PURE__ */ React.createElement(
+          "a",
+          {
+            onClick: () => {
+              setSelectedId(e.contractId);
+              setPage("portfolio");
+            },
+            style: { fontSize: 11.5, color: "#2F7BD9", fontWeight: 700, cursor: "pointer" }
+          },
+          e.ref
+        ));
+      }))));
     })() : page === "vendorrisk" ? (() => {
       const rows = vendorRisk(contracts);
       const bandColour = (b) => b === "High" ? "#E0493E" : b === "Medium" ? "#C98A1E" : "#2E9E6B";
@@ -4135,7 +4452,24 @@ ${list || "(none yet \u2014 create a Contract Record first)"}` }]);
       }
       const anything = missed.length || months.some((m) => m.items.length);
       if (!anything) return null;
-      return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 34 } }, /* @__PURE__ */ React.createElement("div", { className: "section-title", style: { marginBottom: 4 } }, "Renewal runway"), /* @__PURE__ */ React.createElement("div", { className: "section-sub", style: { marginBottom: 14 } }, "Plotted by ", /* @__PURE__ */ React.createElement("b", null, "notice deadline"), " \u2014 the date you must act by, not the date the contract ends. Anything to the left of today has already passed its window."), missed.length > 0 && /* @__PURE__ */ React.createElement("div", { style: {
+      return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 34 } }, /* @__PURE__ */ React.createElement("div", { style: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        flexWrap: "wrap",
+        marginBottom: 4
+      } }, /* @__PURE__ */ React.createElement("div", { className: "section-title", style: { marginBottom: 0 } }, "Renewal runway"), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          className: "btn ghost sm",
+          onClick: () => {
+            const ok = exportAllRenewals(contracts);
+            notify(ok ? "Calendar file downloaded \u2014 open it to add every notice deadline, with reminders at 90, 30 and 7 days." : "No contracts have an end date yet, so there is nothing to diarise.");
+          }
+        },
+        "Add all renewals to calendar"
+      )), /* @__PURE__ */ React.createElement("div", { className: "section-sub", style: { marginBottom: 14 } }, "Plotted by ", /* @__PURE__ */ React.createElement("b", null, "notice deadline"), " \u2014 the date you must act by, not the date the contract ends. Anything to the left of today has already passed its window."), missed.length > 0 && /* @__PURE__ */ React.createElement("div", { style: {
         background: "#FDEEEC",
         border: "1px solid #F5C6C0",
         borderLeft: "3px solid #E0493E",
